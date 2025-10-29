@@ -108,6 +108,10 @@ def pad_or_truncate(x, audio_length):
     else:
         return x[0 : audio_length]
 
+def get_target(audios_dir):
+    # TODO
+    return
+
 
 def d_prime(auc):
     d_prime = stats.norm().ppf(auc) * np.sqrt(2.0)

@@ -10,7 +10,7 @@ import h5py
 import librosa
 
 from utilities import (create_folder, get_filename, create_logging, 
-    float32_to_int16, pad_or_truncate, read_metadata)
+    float32_to_int16, pad_or_truncate, get_target)
 import config
 
 
@@ -129,42 +129,26 @@ def pack_waveforms_to_hdf5(args):
 
     # Arguments & parameters
     audios_dir = args.audios_dir
-    csv_path = args.csv_path
     waveforms_hdf5_path = args.waveforms_hdf5_path
-    mini_data = args.mini_data
 
     clip_samples = config.clip_samples
     classes_num = config.classes_num
     sample_rate = config.sample_rate
     id_to_ix = config.id_to_ix
 
-    # Paths
-    if mini_data:
-        prefix = 'mini_'
-        waveforms_hdf5_path += '.mini'
-    else:
-        prefix = ''
-
     create_folder(os.path.dirname(waveforms_hdf5_path))
 
-    logs_dir = '_logs/pack_waveforms_to_hdf5/{}{}'.format(prefix, get_filename(csv_path))
+    logs_dir = os.path.join('_logs/pack_waveforms_to_hdf5/', audios_dir)
     create_folder(logs_dir)
     create_logging(logs_dir, filemode='w')
     logging.info('Write logs to {}'.format(logs_dir))
     
-    # Read csv file
-    meta_dict = read_metadata(csv_path, classes_num, id_to_ix)
-
-    if mini_data:
-        mini_num = 10
-        for key in meta_dict.keys():
-            meta_dict[key] = meta_dict[key][0 : mini_num]
-
-    audios_num = len(meta_dict['audio_name'])
-
+    
     # Pack waveform to hdf5
     total_time = time.time()
 
+    audios_num = len(os.listdir(audios_dir))
+    
     with h5py.File(waveforms_hdf5_path, 'w') as hf:
         hf.create_dataset('audio_name', shape=((audios_num,)), dtype='S20')
         hf.create_dataset('waveform', shape=((audios_num, clip_samples)), dtype=np.int16)
@@ -172,17 +156,17 @@ def pack_waveforms_to_hdf5(args):
         hf.attrs.create('sample_rate', data=sample_rate, dtype=np.int32)
 
         # Pack waveform & target of several audio clips to a single hdf5 file
-        for n in range(audios_num):
-            audio_path = os.path.join(audios_dir, meta_dict['audio_name'][n])
-
+        
+        for n, name in enumerate(os.listdir(audios_dir)):
+            audio_path = os.path.join(audios_dir, name)
             if os.path.isfile(audio_path):
-                logging.info('{} {}'.format(n, audio_path))
+                logging.info('{} {}'.format(name, audio_path))
                 (audio, _) = librosa.core.load(audio_path, sr=sample_rate, mono=True)
                 audio = pad_or_truncate(audio, clip_samples)
 
-                hf['audio_name'][n] = meta_dict['audio_name'][n].encode()
+                hf['audio_name'][n] = name.encode()
                 hf['waveform'][n] = float32_to_int16(audio)
-                hf['target'][n] = meta_dict['target'][n]
+                hf['target'][n] = getTarget(audios_dir)
             else:
                 logging.info('{} File does not exist! {}'.format(n, audio_path))
 

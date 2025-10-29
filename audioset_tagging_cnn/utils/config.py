@@ -1,30 +1,26 @@
 import numpy as np
 import csv
 
-sample_rate = 32000
-clip_samples = sample_rate * 10     # Audio clips are 10-second
+sample_rate = 44100
+clip_samples = sample_rate * 2     # Audio clips are 2-second
 
 # Load label
 with open('metadata/class_labels_indices.csv', 'r') as f:
     reader = csv.reader(f, delimiter=',')
     lines = list(reader)
 
-labels = []
-ids = []    # Each label has a unique id such as "/m/068hy"
-for i1 in range(1, len(lines)):
-    id = lines[i1][1]
-    label = lines[i1][2]
-    ids.append(id)
-    labels.append(label)
+# Note: compressor, envelope, fuzz must be added; they are not in the IDMT-AUDIO-EFFECTS dataset
+labels = ['delay', 'reverb', 'chorus', 'flanger', 'fuzz', 'envelope','phaser','tremolo','vibrato','distortion', 'overdrive','compressor','no effect']
 
 classes_num = len(labels)
-
+'''
 lb_to_ix = {label : i for i, label in enumerate(labels)}
 ix_to_lb = {i : label for i, label in enumerate(labels)}
 
 id_to_ix = {id : i for i, id in enumerate(ids)}
 ix_to_id = {i : id for i, id in enumerate(ids)}
-
+'''
+'''
 full_samples_per_class = np.array([
         937432,  16344,   7822,  10271,   2043,  14420,    733,   1511,
          1258,    424,   1751,    704,    369,    590,   1063,   1375,
@@ -92,3 +88,4 @@ full_samples_per_class = np.array([
          7664,    137,  70159,  26179,   6321,  32236,  33320,    771,
          1169,    269,   1103,    444,    364,   2710,    121,    751,
          1609,    855,   1141,   2287,   1940,   3943,    289])
+'''
