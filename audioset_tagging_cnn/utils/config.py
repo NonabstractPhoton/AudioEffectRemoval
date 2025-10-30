@@ -1,13 +1,5 @@
-import numpy as np
-import csv
-
 sample_rate = 44100
 clip_samples = sample_rate * 2     # Audio clips are 2-second
-
-# Load label
-with open('metadata/class_labels_indices.csv', 'r') as f:
-    reader = csv.reader(f, delimiter=',')
-    lines = list(reader)
 
 # Note: compressor, envelope, fuzz must be added; they are not in the IDMT-AUDIO-EFFECTS dataset
 labels = ['delay', 'reverb', 'chorus', 'flanger', 'fuzz', 'envelope','phaser','tremolo','vibrato','distortion', 'overdrive','compressor','no effect']

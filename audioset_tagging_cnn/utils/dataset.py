@@ -1,6 +1,5 @@
 import numpy as np
 import argparse
-import csv
 import os
 import glob
 import datetime
@@ -11,7 +10,7 @@ import librosa
 
 from utilities import (create_folder, get_filename, create_logging, 
     float32_to_int16, pad_or_truncate, get_target)
-import config
+import audioset_tagging_cnn.utils.config as config
 
 
 def split_unbalanced_csv_to_partial_csvs(args):
@@ -121,6 +120,13 @@ def download_wavs(args):
 
     logging.info('Logs can be viewed in {}'.format(logs_dir))
 
+def get_target(audios_dir):
+    target = audios_dir.split('/')[-2].lower()
+    idx = config.labels.index(target)
+    encoding = np.zeros(classes_num, dtype=bool)
+    encoding[idx] = 1
+    return encoding
+
 
 def pack_waveforms_to_hdf5(args):
     """Pack waveform and target of several audio clips to a single hdf5 file. 
@@ -166,7 +172,7 @@ def pack_waveforms_to_hdf5(args):
 
                 hf['audio_name'][n] = name.encode()
                 hf['waveform'][n] = float32_to_int16(audio)
-                hf['target'][n] = getTarget(audios_dir)
+                hf['target'][n] = get_target(audios_dir)
             else:
                 logging.info('{} File does not exist! {}'.format(n, audio_path))
 

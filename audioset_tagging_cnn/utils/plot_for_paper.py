@@ -10,7 +10,7 @@ import csv
 from sklearn import metrics
 
 from utilities import (create_folder, get_filename, d_prime)
-import config
+import audioset_tagging_cnn.utils.config as config
 
 
 def load_statistics(statistics_path):
