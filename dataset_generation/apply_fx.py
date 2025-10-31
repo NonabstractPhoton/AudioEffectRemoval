@@ -3,7 +3,11 @@ import os
 import sys
 sys.path.insert(1,'../audioset_tagging_cnn/utils')
 import config
-
+from pysndfx import AudioEffectsChain 
+import torchaudio.functional as F
+from librosa import load
+import soundfile
+import multiprocessing as mp
 
 def main():
     parser = argparse.ArgumentParser(prog='apply_fx',description='Apply Fx to .wav Datasets')
@@ -14,9 +18,67 @@ def main():
 
     if (args.effect not in config.labels):
         print("invalid effect")
-        return;
-    if (os)
+        return
+    if (args.effect == "vibrato"):
+        print("vibrato effect not supported yet")
+        return
+    if (os.path.exists(args.in_directory) == False):
+        print("input directory does not exist")
+        return
+    if (os.path.exists(args.out_directory_root) == False):
+        os.mkdir(args.out_directory_root)
+    
+    target_dir = os.path.join(args.in_directory,args.effect)
+    if (not os.path.exists(target_dir)):
+        os.mkdir(target_dir)
+    
+    fx = callable
+    if (args.effect == 'chorus'):
+        fx = AudioEffectsChain().chorus()
+    elif (args.effect == 'flanger'):
+        fx = AudioEffectsChain().flanger()
+    elif (args.effect == 'reverb'):
+        fx = AudioEffectsChain().reverb()
+    elif args.effect == 'equalizer':
+        fx = AudioEffectsChain().equalizer()
+    elif (args.effect == 'phaser'):
+        fx = AudioEffectsChain().phaser()
+    elif (args.effect == 'tremolo'):
+        fx = AudioEffectsChain().tremolo()
+    elif (args.effect == 'distortion'):
+        from audioFX.Fx import Fx
+        def distortion(x):
+            effect = Fx(config.sample_rate)
+            fx_chain = {"distortion": 1}
+            return effect.process_audio(x, fx_chain)
+        fx = distortion
+    elif (args.effect == 'wah'):
+        def wah(x):
+            from audioFX.Fx import Fx
+            effect = Fx(config.sample_rate)
+            fx_chain = {"wahwah": 1}
+            return effect.process_audio(x, fx_chain)
+        fx = wah
+    elif (args.effect == 'overdrive'):
+        fx = F.overdrive
+    elif args.effect == 'compressor':
+        fx = AudioEffectsChain().compand()
 
+    dir_list = os.listdir(args.in_directory)
+    dir_sublists = [dir_list[i::mp.cpu_count()] for i in range(mp.cpu_count())]
+    def apply_fx_to_files(sub_list, fx=fx, in_dir=args.in_directory, target_dir=target_dir):
+        for filename in sub_list:
+            with load(os.path.join(in_dir,filename)) as (audio,sr):
+                effected_audio = fx(audio)
+                soundfile.write(os.path.join(target_dir,filename),effected_audio,sr)
+
+    processes = [mp.Process(target=apply_fx_to_files,args=(dir_sublists[i])) for i in range(mp.cpu_count())]
+    for p in processes:
+        p.start()   
+    for p in processes:
+        p.join()
+    
+    
 
 if __name__ == "__main__":
     main()
