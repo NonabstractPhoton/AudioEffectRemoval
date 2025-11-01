@@ -8,8 +8,7 @@ import logging
 import h5py
 import librosa
 
-from utilities import (create_folder, get_filename, create_logging, 
-    float32_to_int16, pad_or_truncate, get_target)
+from utilities import (create_folder, get_filename, create_logging, pad_or_truncate, get_target)
 import audioset_tagging_cnn.utils.config as config
 
 
@@ -140,7 +139,6 @@ def pack_waveforms_to_hdf5(args):
     clip_samples = config.clip_samples
     classes_num = config.classes_num
     sample_rate = config.sample_rate
-    id_to_ix = config.id_to_ix
 
     create_folder(os.path.dirname(waveforms_hdf5_path))
 
@@ -171,7 +169,7 @@ def pack_waveforms_to_hdf5(args):
                 audio = pad_or_truncate(audio, clip_samples)
 
                 hf['audio_name'][n] = name.encode()
-                hf['waveform'][n] = float32_to_int16(audio)
+                hf['waveform'][n] = audio
                 hf['target'][n] = get_target(audios_dir)
             else:
                 logging.info('{} File does not exist! {}'.format(n, audio_path))
@@ -194,10 +192,8 @@ if __name__ == '__main__':
     parser_download_wavs.add_argument('--mini_data', action='store_true', default=True, help='Set true to only download 10 audios for debugging.')
 
     parser_pack_wavs = subparsers.add_parser('pack_waveforms_to_hdf5')
-    parser_pack_wavs.add_argument('--csv_path', type=str, required=True, help='Path of csv file containing audio info to be downloaded.')
     parser_pack_wavs.add_argument('--audios_dir', type=str, required=True, help='Directory to save out downloaded audio.')
     parser_pack_wavs.add_argument('--waveforms_hdf5_path', type=str, required=True, help='Path to save out packed hdf5.')
-    parser_pack_wavs.add_argument('--mini_data', action='store_true', default=False, help='Set true to only download 10 audios for debugging.')
 
     args = parser.parse_args()
     
