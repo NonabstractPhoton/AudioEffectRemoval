@@ -70,7 +70,7 @@ def main():
             return effect.process_audio(x, fx_chain)
         fx = wah
     elif (args.effect == 'overdrive'):
-        tfm.overdrive(10,30)
+        tfm.overdrive(20,30)
     elif args.effect == 'compressor':
         tfm.compand()
 
