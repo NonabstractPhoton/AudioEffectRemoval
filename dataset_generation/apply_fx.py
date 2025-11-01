@@ -72,9 +72,9 @@ def main():
     dir_sublists = [dir_list[i::mp.cpu_count()] for i in range(mp.cpu_count())]
     def apply_fx_to_files(sub_list, fx=fx, in_dir=args.in_directory, target_dir=target_dir):
         for filename in sub_list:
-            with read(os.path.join(in_dir,filename)) as (sr,audio):
-                effected_audio = fx(audio)
-                write(os.path.join(target_dir,filename),sr,effected_audio)
+            sr, audio = read(os.path.join(in_dir,filename))
+            effected_audio = fx(audio)
+            write(os.path.join(target_dir,filename),sr,effected_audio)
 
     processes = [mp.Process(target=apply_fx_to_files,args=(dir_sublists[i],)) for i in range(mp.cpu_count())]
     for p in processes:
