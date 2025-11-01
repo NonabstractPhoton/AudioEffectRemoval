@@ -2,8 +2,7 @@ import argparse
 import os
 from pysndfx import AudioEffectsChain 
 import torchaudio.functional as F
-from librosa import load
-import soundfile
+from scipy.io.wavfile import read, write
 import multiprocessing as mp
 
 def main():
@@ -73,9 +72,9 @@ def main():
     dir_sublists = [dir_list[i::mp.cpu_count()] for i in range(mp.cpu_count())]
     def apply_fx_to_files(sub_list, fx=fx, in_dir=args.in_directory, target_dir=target_dir):
         for filename in sub_list:
-            with load(os.path.join(in_dir,filename)) as (audio,sr):
+            with read(os.path.join(in_dir,filename)) as (sr,audio):
                 effected_audio = fx(audio)
-                soundfile.write(os.path.join(target_dir,filename),effected_audio,sr)
+                write(os.path.join(target_dir,filename),sr,effected_audio)
 
     processes = [mp.Process(target=apply_fx_to_files,args=(dir_sublists[i],)) for i in range(mp.cpu_count())]
     for p in processes:
