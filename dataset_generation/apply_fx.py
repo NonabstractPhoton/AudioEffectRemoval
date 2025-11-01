@@ -40,7 +40,8 @@ def main():
         fx = AudioEffectsChain().chorus()
     elif (args.effect == 'flanger'):
         import torchaudio.functional as F
-        from torch import from_numpy, numpy
+        from torch import from_numpy
+        from torch.Tensor import numpy
         fx = lambda wave: F.flanger(from_numpy(wave), sample_rate).numpy()
     elif (args.effect == 'reverb'):
         fx = AudioEffectsChain().reverb()
@@ -66,7 +67,8 @@ def main():
         fx = wah
     elif (args.effect == 'overdrive'):
         import torchaudio.functional as F
-        from torch import from_numpy, numpy
+        from torch import from_numpy
+        from torch.Tensor import numpy
         def overdrive(x):
             return F.overdrive(from_numpy(x)).numpy()
         fx = overdrive
