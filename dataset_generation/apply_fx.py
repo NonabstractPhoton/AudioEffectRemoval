@@ -2,8 +2,9 @@ import argparse
 import os
 from pysndfx import AudioEffectsChain 
 from scipy.io.wavfile import read, write
-import multiprocessing as mp
+import torch.multiprocessing as mp
 import torch
+
 @torch.compile
 def main():
 
@@ -95,6 +96,7 @@ def main():
             effected_audio = fx(audio, index) if gpu_needed else fx(audio)
             write(os.path.join(target_dir,filename),sr,effected_audio)
 
+    mp.set_start_method('spawn', force=True)
     processes = [mp.Process(target=apply_fx_to_files,args=(dir_sublists[i],i)) for i in range(proc_count)]
     for p in processes:
         p.start()   
