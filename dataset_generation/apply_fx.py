@@ -14,8 +14,8 @@ def main():
         exec(config_code, globals())
 
     parser = argparse.ArgumentParser(prog='apply_fx',description='Apply Fx to .wav Datasets')
-    parser.add_argument('in-directory')
-    parser.add_argument('out-directory-root')
+    parser.add_argument('in_directory')
+    parser.add_argument('out_directory_root')
     parser.add_argument('effect')
     args = parser.parse_args()
 
@@ -34,6 +34,8 @@ def main():
     target_dir = os.path.join(args.in_directory,args.effect)
     if (not os.path.exists(target_dir)):
         os.mkdir(target_dir)
+
+    print("Applying {} effect to files in {}".format(args.effect,args.in_directory))
     
     fx = callable
     if (args.effect == 'chorus'):
@@ -75,7 +77,7 @@ def main():
                 effected_audio = fx(audio)
                 soundfile.write(os.path.join(target_dir,filename),effected_audio,sr)
 
-    processes = [mp.Process(target=apply_fx_to_files,args=(dir_sublists[i])) for i in range(mp.cpu_count())]
+    processes = [mp.Process(target=apply_fx_to_files,args=(dir_sublists[i],)) for i in range(mp.cpu_count())]
     for p in processes:
         p.start()   
     for p in processes:
