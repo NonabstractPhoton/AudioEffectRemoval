@@ -44,7 +44,7 @@ def main():
         import torchaudio.functional as F  
         gpu_needed = True
         def flanger(x,device_index=0):
-            return F.flanger(torch.as_tensor(x, dtype=torch.float32).to(torch.device('cuda',device_index)),sample_rate).to(torch.int16).numpy(force=True)
+            return F.flanger(torch.as_tensor(x, dtype=torch.float32).to(torch.device('cuda',device_index)),sample_rate).mul(2**16/2).to(torch.int16).numpy(force=True)
         fx = flanger
     elif (args.effect == 'reverb'):
         from pysndfx import AudioEffectsChain 
@@ -73,7 +73,7 @@ def main():
         import torchaudio.functional as F
         gpu_needed = True
         def overdrive(x,device_index=0):
-            return F.overdrive(torch.as_tensor(x,dtype=torch.float32).to(torch.device('cuda',device_index))).to(torch.int16).numpy(force=True)
+            return F.overdrive(torch.as_tensor(x,dtype=torch.float32).mul(2**16/2).to(torch.device('cuda',device_index))).to(torch.int16).numpy(force=True)
         fx = overdrive
     elif args.effect == 'compressor':
         fx = AudioEffectsChain().compand()
