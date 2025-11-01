@@ -39,18 +39,13 @@ def main():
     tfm = sox.Transformer()
     fx = callable
     if (args.effect == 'chorus'):
-        fx = AudioEffectsChain().chorus()
+        tfm.chorus()
     elif (args.effect == 'flanger'):
-        import torchaudio.functional as F 
-        import torch 
-        gpu_needed = True
-        def flanger(x,device_index=0):
-            return F.flanger(torch.as_tensor(x, dtype=torch.float32).to(torch.device('cuda',device_index)),sample_rate).mul(2**16/2).to(torch.int16).numpy(force=True)
-        fx = flanger
+        tfm.flanger()
     elif (args.effect == 'reverb'):
-        tfm.reverb()
+        tfm.reverb(60)
     elif args.effect == 'equalizer':
-        tfm.equalizer()
+        tfm.equalizer(220,2,0)
     elif (args.effect == 'phaser'):
         tfm.phaser()
     elif (args.effect == 'tremolo'):
@@ -70,7 +65,7 @@ def main():
             return effect.process_audio(x, fx_chain)
         fx = wah
     elif (args.effect == 'overdrive'):
-        tfm.overdrive(20,30)
+        tfm.overdrive(25,30)
     elif args.effect == 'compressor':
         tfm.compand()
 
