@@ -14,7 +14,7 @@ def main():
         config_code = f.read()
         exec(config_code, globals())
 
-    parser = argparse.ArgumentParser(prog='apply_fx',description='Apply Fx to .wav Datasets')
+    parser = argparse.ArgumentParser(prog='apply_fx',description='Apply *Individual* Effects to .wav Datasets')
     parser.add_argument('--in_directory')
     parser.add_argument('--out_directory_root')
     parser.add_argument('effects', nargs='+')
@@ -31,37 +31,37 @@ def main():
             print("invalid effect")
             continue      
 
-        target_dir = os.path.join(args.out_directory_root, args.effect)
+        target_dir = os.path.join(args.out_directory_root, effect)
         if (not os.path.exists(target_dir)):
             os.mkdir(target_dir)
         
-        print("Applying {} effect to files in {}".format(args.effect,args.in_directory))
+        print("Applying {} effect to files in {}".format(effect,args.in_directory))
         pedalboard_needed = False
         tfm = sox.Transformer()
         fx = callable
-        if (args.effect == 'chorus'):
+        if (effect == 'chorus'):
             tfm.chorus()
-        elif (args.effect == 'flanger'):
+        elif (effect == 'flanger'):
             tfm.flanger(depth=5,regen=10,speed=.6)
-        elif (args.effect == 'reverb'):
+        elif (effect == 'reverb'):
             tfm.reverb(60)
-        elif args.effect == 'equalizer':
+        elif effect == 'equalizer':
             tfm.equalizer(220,2,0)
-        elif (args.effect == 'phaser'):
+        elif (effect == 'phaser'):
             tfm.phaser()
-        elif (args.effect == 'tremolo'):
+        elif (effect == 'tremolo'):
             tfm.tremolo()
-        elif (args.effect == 'distortion'):
+        elif (effect == 'distortion'):
             pedalboard_needed = True
             fx = Pedalboard([Distortion()])
             
-        elif (args.effect == 'bitcrusher'):
+        elif (effect == 'bitcrusher'):
             pedalboard_needed = True
             fx = Pedalboard([Bitcrush()])
 
-        elif (args.effect == 'overdrive'):
+        elif (effect == 'overdrive'):
             tfm.overdrive(25,30)
-        elif args.effect == 'compressor':
+        elif effect == 'compressor':
             tfm.compand()
 
         # Only list regular .wav files from the input directory to avoid directories causing IsADirectoryError
