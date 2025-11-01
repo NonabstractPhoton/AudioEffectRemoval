@@ -58,7 +58,7 @@ def main():
     elif (args.effect == 'bitcrusher'):
         from pedalboard import Pedalboard, Bitcrush
         pedalboard_needed = True
-        fx = Pedalboard([Bitcrush(bit_depth=8, sample_rate=44100 )])
+        fx = Pedalboard([Bitcrush()])
 
     elif (args.effect == 'overdrive'):
         tfm.overdrive(25,30)
