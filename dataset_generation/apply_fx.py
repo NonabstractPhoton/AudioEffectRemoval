@@ -94,12 +94,12 @@ def main():
     def apply_tf_to_files(sub_list, tfm=tfm, in_dir=args.in_directory, target_dir=target_dir):
         for filename in sub_list:
             print("Processing file: {}".format(os.path.join(in_dir,filename)))
-            tfm.build_input_output_file(os.path.join(in_dir,filename),os.path.join(target_dir,filename))
+            tfm.build_file(os.path.join(in_dir,filename),os.path.join(target_dir,filename))
 
     processes = []
     if (gpu_needed or audioFx_needed):
         processes = [mp.Process(target=apply_fx_to_files,args=(dir_sublists[i],i)) for i in range(proc_count)]
-    else 
+    else:
         processes = [mp.Process(target=apply_tf_to_files,args=(dir_sublists[i],)) for i in range(proc_count)]
     for p in processes:
         p.start()   
