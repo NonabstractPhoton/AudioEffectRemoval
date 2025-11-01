@@ -6,7 +6,7 @@ import datetime
 import time
 import logging
 import h5py
-from pedalboard.io import AudioFile
+from scipy.io.wavfile import read
 
 from utilities import (create_folder, get_filename, create_logging, pad_or_truncate)
 import config
@@ -56,7 +56,7 @@ def download_wavs(args):
     mini_data = args.mini_data
     
     if mini_data:
-        logs_dir = '{}_logs/download_dataset/{}'.format(get_filename(csv_path))
+        logs_dir = '_logs/download_dataset/{}'.format(get_filename(csv_path))
     else:
         logs_dir = '_logs/download_dataset_minidata/{}'.format(get_filename(csv_path))
     
@@ -142,7 +142,7 @@ def pack_waveforms_to_hdf5(args):
 
     create_folder(os.path.dirname(waveforms_hdf5_path))
 
-    logs_dir = os.path.join(audios_dir,'_logs/pack_waveforms_to_hdf5/')
+    logs_dir = os.path.join('_logs/pack_waveforms_to_hdf5/', audios_dir)
     create_folder(logs_dir)
     create_logging(logs_dir, filemode='w')
     logging.info('Write logs to {}'.format(logs_dir))
@@ -163,16 +163,14 @@ def pack_waveforms_to_hdf5(args):
         
         for n, name in enumerate(os.listdir(audios_dir)):
             audio_path = os.path.join(audios_dir, name)
-            if os.path.isfile(audio_path) and audio_path.endswith('.wav'):
+            if os.path.isfile(audio_path):
                 logging.info('{} {}'.format(name, audio_path))
-                
-                with AudioFile(audio_path) as f:
-                    audio = f.read(f.frames)
-                    assert (audio.dtype == np.int16)
-                    audio = pad_or_truncate(audio, clip_samples)
-                    hf['audio_name'][n] = name.encode()
-                    hf['waveform'][n] = audio
-                    hf['target'][n] = get_target(audios_dir)
+                (_, audio) = read(audio_path)
+                audio = pad_or_truncate(audio, clip_samples)
+
+                hf['audio_name'][n] = name.encode()
+                hf['waveform'][n] = audio
+                hf['target'][n] = get_target(audios_dir)
             else:
                 logging.info('{} File does not exist! {}'.format(n, audio_path))
 
