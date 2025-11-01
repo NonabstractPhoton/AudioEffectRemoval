@@ -8,7 +8,7 @@ import logging
 import h5py
 import librosa
 
-from utilities import (create_folder, get_filename, create_logging, pad_or_truncate, get_target)
+from utilities import (create_folder, get_filename, create_logging, pad_or_truncate)
 import audioset_tagging_cnn.utils.config as config
 
 
