@@ -53,7 +53,7 @@ def main():
     elif (args.effect == 'distortion'):
         from pedalboard import Pedalboard, Distortion
         pedalboard_needed = True
-        fx = Pedalboard([Distortion(drive_db=20.0, tone=800.0, mix=0.8)])
+        fx = Pedalboard([Distortion()])
         
     elif (args.effect == 'bitcrusher'):
         from pedalboard import Pedalboard, Bitcrush
