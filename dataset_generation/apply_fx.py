@@ -41,7 +41,7 @@ def main():
     if (args.effect == 'chorus'):
         fx = AudioEffectsChain().chorus()
     elif (args.effect == 'flanger'):
-        fx = lambda wave: F.flanger(as_tensor(wave), sample_rate).numpy()
+        fx = lambda wave: F.flanger(as_tensor(wave).to('cuda'), sample_rate).detach().cpu().numpy()
     elif (args.effect == 'reverb'):
         fx = AudioEffectsChain().reverb()
     elif args.effect == 'equalizer':
@@ -66,7 +66,7 @@ def main():
         fx = wah
     elif (args.effect == 'overdrive'):
         def overdrive(x):
-            return F.overdrive(as_tensor(x)).numpy()
+            return F.overdrive(as_tensor(x).to('cuda')).detach().cpu().numpy()
         fx = overdrive
     elif args.effect == 'compressor':
         fx = AudioEffectsChain().compand()
