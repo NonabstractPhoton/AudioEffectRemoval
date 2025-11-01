@@ -1,8 +1,6 @@
 import argparse 
 import os
 import sys
-sys.path.insert(1,'../audioset_tagging_cnn/utils')
-import config
 from pysndfx import AudioEffectsChain 
 import torchaudio.functional as F
 from librosa import load
@@ -10,6 +8,12 @@ import soundfile
 import multiprocessing as mp
 
 def main():
+
+    # jank but this script will only be ran a few times anyway
+    with open('audioset_tagging_cnn/utils/config.py') as f:
+        config_code = f.read()
+        exec(config_code, globals())
+
     parser = argparse.ArgumentParser(prog='apply_fx',description='Apply Fx to .wav Datasets')
     parser.add_argument('in-directory')
     parser.add_argument('out-directory-root')
@@ -36,7 +40,7 @@ def main():
     if (args.effect == 'chorus'):
         fx = AudioEffectsChain().chorus()
     elif (args.effect == 'flanger'):
-        fx = AudioEffectsChain().flanger()
+        fx = lambda wave: F.flanger(wave, config.sample_rate)
     elif (args.effect == 'reverb'):
         fx = AudioEffectsChain().reverb()
     elif args.effect == 'equalizer':
