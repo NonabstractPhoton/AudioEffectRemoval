@@ -1,6 +1,6 @@
 import argparse 
 import os
-from pysndfx import AudioEffectsChain 
+import sox 
 from scipy.io.wavfile import read, write
 import multiprocessing as mp
 
@@ -32,9 +32,11 @@ def main():
     target_dir = os.path.join(args.out_directory_root, args.effect)
     if (not os.path.exists(target_dir)):
         os.mkdir(target_dir)
-
+    
     print("Applying {} effect to files in {}".format(args.effect,args.in_directory))
     gpu_needed = False
+    audioFx_needed = False
+    tfm = sox.Transformer()
     fx = callable
     if (args.effect == 'chorus'):
         fx = AudioEffectsChain().chorus()
@@ -46,14 +48,13 @@ def main():
             return F.flanger(torch.as_tensor(x, dtype=torch.float32).to(torch.device('cuda',device_index)),sample_rate).mul(2**16/2).to(torch.int16).numpy(force=True)
         fx = flanger
     elif (args.effect == 'reverb'):
-        from pysndfx import AudioEffectsChain 
-        fx = AudioEffectsChain().reverb()
+        tfm.reverb()
     elif args.effect == 'equalizer':
-        fx = AudioEffectsChain().equalizer()
+        tfm.equalizer()
     elif (args.effect == 'phaser'):
-        fx = AudioEffectsChain().phaser()
+        tfm.phaser()
     elif (args.effect == 'tremolo'):
-        fx = AudioEffectsChain().tremolo()
+        tfm.tremolo()
     elif (args.effect == 'distortion'):
         from audioFX.Fx import Fx
         def distortion(x):
@@ -69,9 +70,9 @@ def main():
             return effect.process_audio(x, fx_chain)
         fx = wah
     elif (args.effect == 'overdrive'):
-        fx = AudioEffectsChain().overdrive(0,30)
+        tfm.overdrive(0,30)
     elif args.effect == 'compressor':
-        fx = AudioEffectsChain().compand()
+        tfm.compand()
 
     # Only list regular .wav files from the input directory to avoid directories causing IsADirectoryError
     dir_list = [f for f in os.listdir(args.in_directory)
@@ -90,8 +91,16 @@ def main():
             sr, audio = read(os.path.join(in_dir,filename))
             effected_audio = fx(audio, index) if gpu_needed else fx(audio)
             write(os.path.join(target_dir,filename),sr,effected_audio)
+    def apply_tf_to_files(sub_list, tfm=tfm, in_dir=args.in_directory, target_dir=target_dir):
+        for filename in sub_list:
+            print("Processing file: {}".format(os.path.join(in_dir,filename)))
+            tfm.build_input_output_file(os.path.join(in_dir,filename),os.path.join(target_dir,filename))
 
-    processes = [mp.Process(target=apply_fx_to_files,args=(dir_sublists[i],i)) for i in range(proc_count)]
+    processes = []
+    if (gpu_needed or audioFx_needed):
+        processes = [mp.Process(target=apply_fx_to_files,args=(dir_sublists[i],i)) for i in range(proc_count)]
+    else 
+        processes = [mp.Process(target=apply_tf_to_files,args=(dir_sublists[i],)) for i in range(proc_count)]
     for p in processes:
         p.start()   
     for p in processes:
