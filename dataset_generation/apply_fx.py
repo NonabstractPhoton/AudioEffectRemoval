@@ -69,12 +69,7 @@ def main():
             return effect.process_audio(x, fx_chain)
         fx = wah
     elif (args.effect == 'overdrive'):
-        import torchaudio.functional as F
-        import torch
-        gpu_needed = True
-        def overdrive(x,device_index=0):
-            return F.overdrive(torch.as_tensor(x,dtype=torch.float32).to(torch.device('cuda',device_index)),0,10).mul(2**16/2).to(torch.int16).numpy(force=True)
-        fx = overdrive
+        fx = AudioEffectsChain().overdrive(0,30)
     elif args.effect == 'compressor':
         fx = AudioEffectsChain().compand()
 
