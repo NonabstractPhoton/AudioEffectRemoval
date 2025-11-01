@@ -36,11 +36,12 @@ def main():
         os.mkdir(target_dir)
 
     print("Applying {} effect to files in {}".format(args.effect,args.in_directory))
-    
+    gpu_needed = False
     fx = callable
     if (args.effect == 'chorus'):
         fx = AudioEffectsChain().chorus()
     elif (args.effect == 'flanger'):
+        gpu_needed = True
         fx = lambda wave: F.flanger(as_tensor(wave).to('cuda'), sample_rate).detach().cpu().numpy()
     elif (args.effect == 'reverb'):
         fx = AudioEffectsChain().reverb()
@@ -65,6 +66,7 @@ def main():
             return effect.process_audio(x, fx_chain)
         fx = wah
     elif (args.effect == 'overdrive'):
+        gpu_needed = True
         def overdrive(x):
             return F.overdrive(as_tensor(x).to('cuda')).detach().cpu().numpy()
         fx = overdrive
@@ -72,7 +74,7 @@ def main():
         fx = AudioEffectsChain().compand()
 
     dir_list = os.listdir(args.in_directory)
-    dir_sublists = [dir_list[i::mp.cpu_count()] for i in range(mp.cpu_count())]
+    dir_sublists = [dir_list[i::mp.cpu_count()] for i in range(mp.cpu_count() if not gpu_needed else 4)]
     def apply_fx_to_files(sub_list, fx=fx, in_dir=args.in_directory, target_dir=target_dir):
         for filename in sub_list:
             sr, audio = read(os.path.join(in_dir,filename))
