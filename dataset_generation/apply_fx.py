@@ -1,7 +1,6 @@
 import argparse 
 import os
 import sox 
-from scipy.io.wavfile import read, write
 from pedalboard.io import AudioFile
 
 from pedalboard import Pedalboard, Distortion, Bitcrush

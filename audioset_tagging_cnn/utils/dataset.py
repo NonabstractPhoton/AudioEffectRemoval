@@ -6,7 +6,7 @@ import datetime
 import time
 import logging
 import h5py
-from scipy.io.wavfile import read, write
+from pedalboard.io import AudioFile
 
 from utilities import (create_folder, get_filename, create_logging, pad_or_truncate)
 import config
@@ -165,12 +165,14 @@ def pack_waveforms_to_hdf5(args):
             audio_path = os.path.join(audios_dir, name)
             if os.path.isfile(audio_path):
                 logging.info('{} {}'.format(name, audio_path))
-                (_, audio) = read(audio_path)
-                audio = pad_or_truncate(audio, clip_samples)
-
-                hf['audio_name'][n] = name.encode()
-                hf['waveform'][n] = audio
-                hf['target'][n] = get_target(audios_dir)
+                
+                with AudioFile(audio_path) as f:
+                    audio = f.read(f.frames)
+                    assert (audio.dtype == np.int16)
+                    audio = pad_or_truncate(audio, clip_samples)
+                    hf['audio_name'][n] = name.encode()
+                    hf['waveform'][n] = audio
+                    hf['target'][n] = get_target(audios_dir)
             else:
                 logging.info('{} File does not exist! {}'.format(n, audio_path))
 
