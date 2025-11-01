@@ -4,7 +4,7 @@ from pysndfx import AudioEffectsChain
 from scipy.io.wavfile import read, write
 import multiprocessing as mp
 import torch
-@torch.compile
+
 def main():
 
     # jank but this script will only be ran a few times anyway
