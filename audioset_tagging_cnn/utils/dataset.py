@@ -6,7 +6,7 @@ import datetime
 import time
 import logging
 import h5py
-import librosa
+from scipy.io.wavfile import read, write
 
 from utilities import (create_folder, get_filename, create_logging, pad_or_truncate)
 import config
@@ -165,7 +165,7 @@ def pack_waveforms_to_hdf5(args):
             audio_path = os.path.join(audios_dir, name)
             if os.path.isfile(audio_path):
                 logging.info('{} {}'.format(name, audio_path))
-                (audio, _) = librosa.core.load(audio_path, sr=sample_rate, mono=True)
+                (_, audio) = read(audio_path)
                 audio = pad_or_truncate(audio, clip_samples)
 
                 hf['audio_name'][n] = name.encode()
