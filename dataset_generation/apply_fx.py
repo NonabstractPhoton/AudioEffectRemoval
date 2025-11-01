@@ -1,7 +1,6 @@
 import argparse 
 import os
 from pysndfx import AudioEffectsChain 
-import torchaudio.functional as F
 from scipy.io.wavfile import read, write
 import multiprocessing as mp
 
@@ -40,7 +39,9 @@ def main():
     if (args.effect == 'chorus'):
         fx = AudioEffectsChain().chorus()
     elif (args.effect == 'flanger'):
-        fx = lambda wave: F.flanger(wave, sample_rate)
+        import torchaudio.functional as F
+        from torch import from_numpy, numpy
+        fx = lambda wave: F.flanger(from_numpy(wave), sample_rate).numpy()
     elif (args.effect == 'reverb'):
         fx = AudioEffectsChain().reverb()
     elif args.effect == 'equalizer':
@@ -64,7 +65,11 @@ def main():
             return effect.process_audio(x, fx_chain)
         fx = wah
     elif (args.effect == 'overdrive'):
-        fx = F.overdrive
+        import torchaudio.functional as F
+        from torch import from_numpy, numpy
+        def overdrive(x):
+            return F.overdrive(from_numpy(x)).numpy()
+        fx = overdrive
     elif args.effect == 'compressor':
         fx = AudioEffectsChain().compand()
 
