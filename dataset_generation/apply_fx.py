@@ -2,6 +2,7 @@ import argparse
 import os
 import sox 
 from scipy.io.wavfile import read, write
+from pedalboard.io import AudioFile
 import multiprocessing as mp
 
 def main():
@@ -34,8 +35,7 @@ def main():
         os.mkdir(target_dir)
     
     print("Applying {} effect to files in {}".format(args.effect,args.in_directory))
-    gpu_needed = False
-    audioFx_needed = False
+    pedalboard_needed = False
     tfm = sox.Transformer()
     fx = callable
     if (args.effect == 'chorus'):
@@ -51,19 +51,15 @@ def main():
     elif (args.effect == 'tremolo'):
         tfm.tremolo()
     elif (args.effect == 'distortion'):
-        from audioFX.Fx import Fx
-        def distortion(x):
-            effect = Fx(sample_rate)
-            fx_chain = {"distortion": 1}
-            return effect.process_audio(x, fx_chain)
-        fx = distortion
-    elif (args.effect == 'wah'):
-        from audioFX.Fx import Fx
-        def wah(x):
-            effect = Fx(sample_rate)
-            fx_chain = {"wahwah": 1}
-            return effect.process_audio(x, fx_chain)
-        fx = wah
+        from pedalboard import Pedalboard, Distortion
+        pedalboard_needed = True
+        fx = Pedalboard([Distortion(drive_db=20.0, tone=800.0, mix=0.8)])
+        
+    elif (args.effect == 'bitcrusher'):
+        from pedalboard import Pedalboard, Bitcrush
+        pedalboard_needed = True
+        fx = Pedalboard([Bitcrush(bit_depth=8, sample_rate=44100 )])
+
     elif (args.effect == 'overdrive'):
         tfm.overdrive(25,30)
     elif args.effect == 'compressor':
@@ -77,23 +73,26 @@ def main():
         print("No .wav files found in input directory:", args.in_directory)
         return
 
-    proc_count = min(mp.cpu_count() if not gpu_needed else 4, len(dir_list))
+    proc_count = min(mp.cpu_count(), len(dir_list))
     dir_sublists = [dir_list[i::proc_count] for i in range(proc_count)]
 
-    def apply_fx_to_files(sub_list, index, fx=fx, in_dir=args.in_directory, target_dir=target_dir):
+    def apply_pedalboard_to_files(sub_list, fx=fx, in_dir=args.in_directory, target_dir=target_dir):
         for filename in sub_list:
             print("Processing file: {}".format(os.path.join(in_dir,filename)))
-            sr, audio = read(os.path.join(in_dir,filename))
-            effected_audio = fx(audio, index) if gpu_needed else fx(audio)
-            write(os.path.join(target_dir,filename),sr,effected_audio)
+            with AudioFile(os.path.join(in_dir,filename)) as f:
+                with AudioFile(os.path.join(target_dir,filename), 'w', f.samplerate, f.num_channels) as out_f:
+                    audio = f.read(f.frames)
+                    effected_audio = fx(audio, f.samplerate)
+                    out_f.write(effected_audio)
+
     def apply_tf_to_files(sub_list, tfm=tfm, in_dir=args.in_directory, target_dir=target_dir):
         for filename in sub_list:
             print("Processing file: {}".format(os.path.join(in_dir,filename)))
             tfm.build_file(os.path.join(in_dir,filename),os.path.join(target_dir,filename))
 
     processes = []
-    if (gpu_needed or audioFx_needed):
-        processes = [mp.Process(target=apply_fx_to_files,args=(dir_sublists[i],i)) for i in range(proc_count)]
+    if (pedalboard_needed):
+        processes = [mp.Process(target=apply_pedalboard_to_files,args=(dir_sublists[i],)) for i in range(proc_count)]
     else:
         processes = [mp.Process(target=apply_tf_to_files,args=(dir_sublists[i],)) for i in range(proc_count)]
     for p in processes:
