@@ -58,8 +58,8 @@ def main():
             return effect.process_audio(x, fx_chain)
         fx = distortion
     elif (args.effect == 'wah'):
+        from audioFX.Fx import Fx
         def wah(x):
-            from audioFX.Fx import Fx
             effect = Fx(sample_rate)
             fx_chain = {"wahwah": 1}
             return effect.process_audio(x, fx_chain)
