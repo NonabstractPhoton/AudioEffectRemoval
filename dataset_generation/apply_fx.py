@@ -89,21 +89,20 @@ def main():
     proc_count = min(mp.cpu_count() if not gpu_needed else 4, len(dir_list))
     dir_sublists = [dir_list[i::proc_count] for i in range(proc_count)]
 
-    def apply_fx_to_files(sub_list, index, fx=fx, in_dir=args.in_directory, target_dir=target_dir):
-        for filename in sub_list:
-            print("Processing file: {}".format(os.path.join(in_dir,filename)))
-            sr, audio = read(os.path.join(in_dir,filename))
-            effected_audio = fx(audio, index) if gpu_needed else fx(audio)
-            write(os.path.join(target_dir,filename),sr,effected_audio)
-
+    
     mp.set_start_method('spawn', force=True)
-    processes = [mp.Process(target=apply_fx_to_files,args=(dir_sublists[i],i)) for i in range(proc_count)]
+    processes = [mp.Process(target=apply_fx_to_files,args=(dir_sublists[i],i,fx,args.in_directory,target_dir, gpu_needed)) for i in range(proc_count)]
     for p in processes:
         p.start()   
     for p in processes:
         p.join()
     
-    
+def apply_fx_to_files(sub_list, index, fx, in_dir, target_dir, gpu_needed):
+        for filename in sub_list:
+            print("Processing file: {}".format(os.path.join(in_dir,filename)))
+            sr, audio = read(os.path.join(in_dir,filename))
+            effected_audio = fx(audio, index) if gpu_needed else fx(audio)
+            write(os.path.join(target_dir,filename),sr,effected_audio)
 
 if __name__ == "__main__":
     main()
