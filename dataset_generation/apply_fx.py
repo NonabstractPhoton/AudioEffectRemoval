@@ -41,7 +41,7 @@ def main():
     if (args.effect == 'chorus'):
         tfm.chorus()
     elif (args.effect == 'flanger'):
-        tfm.flanger()
+        tfm.flanger(depth=5,regen=10,speed=.6)
     elif (args.effect == 'reverb'):
         tfm.reverb(60)
     elif args.effect == 'equalizer':
