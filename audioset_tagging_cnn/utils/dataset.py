@@ -56,7 +56,7 @@ def download_wavs(args):
     mini_data = args.mini_data
     
     if mini_data:
-        logs_dir = '_logs/download_dataset/{}'.format(get_filename(csv_path))
+        logs_dir = '{}_logs/download_dataset/{}'.format(get_filename(csv_path))
     else:
         logs_dir = '_logs/download_dataset_minidata/{}'.format(get_filename(csv_path))
     
@@ -142,7 +142,7 @@ def pack_waveforms_to_hdf5(args):
 
     create_folder(os.path.dirname(waveforms_hdf5_path))
 
-    logs_dir = os.path.join('_logs/pack_waveforms_to_hdf5/', audios_dir)
+    logs_dir = os.path.join(audios_dir,'_logs/pack_waveforms_to_hdf5/')
     create_folder(logs_dir)
     create_logging(logs_dir, filemode='w')
     logging.info('Write logs to {}'.format(logs_dir))
