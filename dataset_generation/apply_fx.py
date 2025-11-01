@@ -1,6 +1,5 @@
 import argparse 
 import os
-import sys
 from pysndfx import AudioEffectsChain 
 import torchaudio.functional as F
 from librosa import load
@@ -20,7 +19,7 @@ def main():
     parser.add_argument('effect')
     args = parser.parse_args()
 
-    if (args.effect not in config.labels):
+    if (args.effect not in labels):
         print("invalid effect")
         return
     if (args.effect == "vibrato"):
@@ -40,7 +39,7 @@ def main():
     if (args.effect == 'chorus'):
         fx = AudioEffectsChain().chorus()
     elif (args.effect == 'flanger'):
-        fx = lambda wave: F.flanger(wave, config.sample_rate)
+        fx = lambda wave: F.flanger(wave, sample_rate)
     elif (args.effect == 'reverb'):
         fx = AudioEffectsChain().reverb()
     elif args.effect == 'equalizer':
@@ -52,14 +51,14 @@ def main():
     elif (args.effect == 'distortion'):
         from audioFX.Fx import Fx
         def distortion(x):
-            effect = Fx(config.sample_rate)
+            effect = Fx(sample_rate)
             fx_chain = {"distortion": 1}
             return effect.process_audio(x, fx_chain)
         fx = distortion
     elif (args.effect == 'wah'):
         def wah(x):
             from audioFX.Fx import Fx
-            effect = Fx(config.sample_rate)
+            effect = Fx(sample_rate)
             fx_chain = {"wahwah": 1}
             return effect.process_audio(x, fx_chain)
         fx = wah
