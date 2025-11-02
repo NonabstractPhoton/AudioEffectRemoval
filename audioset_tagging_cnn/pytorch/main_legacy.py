@@ -51,9 +51,9 @@ def train(args):
     window_size = args.window_size
     hop_size = args.hop_size
     mel_bins = args.mel_bins
+    model_type = args.model_type
     fmin = args.fmin
     fmax = args.fmax
-    model_type = args.model_type
     loss_type = args.loss_type
     balanced = args.balanced
     augmentation = args.augmentation
@@ -113,7 +113,7 @@ def train(args):
         device = 'cpu'
     
     # Model
-    Model = Wavegram_Logmel128_Cnn14
+    Model = eval(model_type)
     model = Model(sample_rate=sample_rate, window_size=window_size, 
         hop_size=hop_size, mel_bins=mel_bins, fmin=fmin, fmax=fmax, 
         classes_num=classes_num)
@@ -189,7 +189,7 @@ def train(args):
         iteration = 0
     
     # Parallel
-    print('GPU number: {}'.format(torch.cuda.device_count()))
+    print('GPU number: {}'.format(os.environ['LOCAL_RANK']))
     model = torch.nn.DataParallel(model)
 
     if 'cuda' in str(device):
@@ -209,7 +209,7 @@ def train(args):
         if (iteration % 2000 == 0 and iteration > resume_iteration) or (iteration == 0):
             train_fin_time = time.time()
 
-            validation_statistics = evaluator.evaluate(validation_loader))
+            validation_statistics = evaluator.evaluate(validation_loader)
                             
             logging.info('Validate mAP: {:.3f}'.format(
                 np.mean(validation_statistics['average_precision'])))
@@ -302,6 +302,7 @@ if __name__ == '__main__':
     parser_train.add_argument('--window_size', type=int, default=1024)
     parser_train.add_argument('--hop_size', type=int, default=320)
     parser_train.add_argument('--mel_bins', type=int, default=128)
+    parser_train.add_argument('--model_type', type=str, default="Wavegram_Logmel128_Cnn14")
     parser_train.add_argument('--fmin', type=int, default=32)
     parser_train.add_argument('--fmax', type=int, default=14080) 
     parser_train.add_argument('--loss_type', type=str, default='clip_bce', choices=['clip_bce'])
