@@ -380,8 +380,11 @@ class Wavegram_Logmel128_Cnn14(nn.Module):
         x = self.conv_block1(x, pool_size=(2, 2), pool_type='avg')
 
         # Concatenate Wavegram and Log mel spectrogram along the channel dimension
-        print("Sizes before concat:")
-        print(x.size(), a1.size())
+        if (x.size(2) != a1.size(2)):
+            min_t = min(x.size(2), a1.size(2))
+            min_f = min(x.size(3), a1.size(3))
+            x = x[:, :, :min_t, :min_f]
+            a1 = a1[:, :, :min_t, :min_f]
         x = torch.cat((x, a1), dim=1)
         
         x = F.dropout(x, p=0.2, training=self.training)
