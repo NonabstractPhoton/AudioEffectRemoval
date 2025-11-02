@@ -120,7 +120,7 @@ def download_wavs(args):
     logging.info('Logs can be viewed in {}'.format(logs_dir))
 
 def get_target(audios_dir):
-    target = audios_dir.split('/')[-2].lower()
+    target = os,path.basename(audios_dir)
     idx = config.labels.index(target)
     encoding = np.zeros(classes_num, dtype=bool)
     encoding[idx] = 1
