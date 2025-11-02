@@ -5,13 +5,12 @@ from pedalboard.io import AudioFile
 
 from pedalboard import Pedalboard, Distortion, Bitcrush
 import multiprocessing as mp
+import load_config
 
 def main():
 
-    # jank but this script will only be ran a few times anyway
-    with open('audioset_tagging_cnn/utils/config.py') as f:
-        config_code = f.read()
-        exec(config_code, globals())
+    # temporary solution
+    load_config.load_config(globals())
 
     parser = argparse.ArgumentParser(prog='apply_fx',description='Apply *Individual* Effects to .wav Datasets')
     parser.add_argument('--in_directory')
