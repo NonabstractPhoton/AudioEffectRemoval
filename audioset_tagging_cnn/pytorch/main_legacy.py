@@ -117,6 +117,7 @@ def train(args):
     model = Model(sample_rate=sample_rate, window_size=window_size, 
         hop_size=hop_size, mel_bins=mel_bins, fmin=fmin, fmax=fmax, 
         classes_num=classes_num)
+    model = torch.compile(model)
      
     params_num = count_parameters(model)
     # flops_num = count_flops(model, clip_samples)
