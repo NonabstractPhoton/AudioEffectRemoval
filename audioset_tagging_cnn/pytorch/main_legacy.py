@@ -7,20 +7,13 @@ import time
 import logging
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 import torch.utils.data
  
 from utilities import (create_folder, get_filename, create_logging, Mixup, 
     StatisticsContainer)
-from models import (Cnn14, Cnn14_no_specaug, Cnn14_no_dropout, 
-    Cnn6, Cnn10, ResNet22, ResNet38, ResNet54, Cnn14_emb512, Cnn14_emb128, 
-    Cnn14_emb32, MobileNetV1, MobileNetV2, LeeNet11, LeeNet24, DaiNet19, 
-    Res1dNet31, Res1dNet51, Wavegram_Cnn14, Wavegram_Logmel_Cnn14, 
-    Wavegram_Logmel128_Cnn14, Cnn14_16k, Cnn14_8k, Cnn14_mel32, Cnn14_mel128, 
-    Cnn14_mixup_time_domain, Cnn14_DecisionLevelMax, Cnn14_DecisionLevelAtt)
-from pytorch_utils import (move_data_to_device, count_parameters, count_flops, 
+from models import (Wavegram_Logmel128_Cnn14)
+from pytorch_utils import (move_data_to_device, count_parameters, 
     do_mixup)
 from data_generator import (AudioSetDataset, TrainSampler, BalancedTrainSampler, 
     AlternateTrainSampler, EvaluateSampler, collate_fn)
@@ -71,7 +64,7 @@ def train(args):
     device = torch.device('cuda') if args.cuda and torch.cuda.is_available() else torch.device('cpu')
     filename = args.filename
 
-    num_workers = 8
+    num_workers = 128
     clip_samples = config.clip_samples
     classes_num = config.classes_num
     loss_func = get_loss_func(loss_type)
@@ -79,14 +72,11 @@ def train(args):
     # Paths
     black_list_csv = None
     
-    train_indexes_hdf5_path = os.path.join(workspace, 'hdf5s', 'indexes', 
+    train_indexes_hdf5_path = os.path.join(workspace, 'dataset','train','hdf5s', 'indexes', 
         '{}.h5'.format(data_type))
 
-    eval_bal_indexes_hdf5_path = os.path.join(workspace, 
-        'hdf5s', 'indexes', 'balanced_train.h5')
-
-    eval_test_indexes_hdf5_path = os.path.join(workspace, 'hdf5s', 'indexes', 
-        'eval.h5')
+    val_indexes_hdf5_path = os.path.join(workspace, 
+        'dataset','validation','hdf5s', 'indexes', 'full_validation.h5')
 
     checkpoints_dir = os.path.join(workspace, 'checkpoints', filename, 
         'sample_rate={},window_size={},hop_size={},mel_bins={},fmin={},fmax={}'.format(
@@ -123,7 +113,7 @@ def train(args):
         device = 'cpu'
     
     # Model
-    Model = eval(model_type)
+    Model = Wavegram_Logmel128_Cnn14
     model = Model(sample_rate=sample_rate, window_size=window_size, 
         hop_size=hop_size, mel_bins=mel_bins, fmin=fmin, fmax=fmax, 
         classes_num=classes_num)
@@ -151,23 +141,16 @@ def train(args):
         black_list_csv=black_list_csv)
     
     # Evaluate sampler
-    eval_bal_sampler = EvaluateSampler(
-        indexes_hdf5_path=eval_bal_indexes_hdf5_path, batch_size=batch_size)
-
-    eval_test_sampler = EvaluateSampler(
-        indexes_hdf5_path=eval_test_indexes_hdf5_path, batch_size=batch_size)
+    validation_sampler = EvaluateSampler(
+        indexes_hdf5_path=val_indexes_hdf5_path, batch_size=batch_size)
 
     # Data loader
     train_loader = torch.utils.data.DataLoader(dataset=dataset, 
         batch_sampler=train_sampler, collate_fn=collate_fn, 
         num_workers=num_workers, pin_memory=True)
     
-    eval_bal_loader = torch.utils.data.DataLoader(dataset=dataset, 
-        batch_sampler=eval_bal_sampler, collate_fn=collate_fn, 
-        num_workers=num_workers, pin_memory=True)
-
-    eval_test_loader = torch.utils.data.DataLoader(dataset=dataset, 
-        batch_sampler=eval_test_sampler, collate_fn=collate_fn, 
+    validation_loader = torch.utils.data.DataLoader(dataset=dataset, 
+        batch_sampler=validation_sampler, collate_fn=collate_fn, 
         num_workers=num_workers, pin_memory=True)
 
     if 'mixup' in augmentation:
@@ -226,17 +209,12 @@ def train(args):
         if (iteration % 2000 == 0 and iteration > resume_iteration) or (iteration == 0):
             train_fin_time = time.time()
 
-            bal_statistics = evaluator.evaluate(eval_bal_loader)
-            test_statistics = evaluator.evaluate(eval_test_loader)
+            validation_statistics = evaluator.evaluate(validation_loader))
                             
-            logging.info('Validate bal mAP: {:.3f}'.format(
-                np.mean(bal_statistics['average_precision'])))
+            logging.info('Validate mAP: {:.3f}'.format(
+                np.mean(validation_statistics['average_precision'])))
 
-            logging.info('Validate test mAP: {:.3f}'.format(
-                np.mean(test_statistics['average_precision'])))
-
-            statistics_container.append(iteration, bal_statistics, data_type='bal')
-            statistics_container.append(iteration, test_statistics, data_type='test')
+            statistics_container.append(iteration, validation_statistics, data_type='bal')
             statistics_container.dump()
 
             train_time = train_fin_time - train_bgn_time
@@ -314,27 +292,26 @@ def train(args):
 
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser(description='Example of parser. ')
+    parser = argparse.ArgumentParser(description='Train ')
     subparsers = parser.add_subparsers(dest='mode')
 
     parser_train = subparsers.add_parser('train') 
     parser_train.add_argument('--workspace', type=str, required=True)
     parser_train.add_argument('--data_type', type=str, default='full_train', choices=['balanced_train', 'full_train'])
-    parser_train.add_argument('--sample_rate', type=int, default=32000)
+    parser_train.add_argument('--sample_rate', type=int, default=44100)
     parser_train.add_argument('--window_size', type=int, default=1024)
     parser_train.add_argument('--hop_size', type=int, default=320)
-    parser_train.add_argument('--mel_bins', type=int, default=64)
-    parser_train.add_argument('--fmin', type=int, default=50)
-    parser_train.add_argument('--fmax', type=int, default=14000) 
-    parser_train.add_argument('--model_type', type=str, required=True)
+    parser_train.add_argument('--mel_bins', type=int, default=128)
+    parser_train.add_argument('--fmin', type=int, default=32)
+    parser_train.add_argument('--fmax', type=int, default=14080) 
     parser_train.add_argument('--loss_type', type=str, default='clip_bce', choices=['clip_bce'])
     parser_train.add_argument('--balanced', type=str, default='balanced', choices=['none', 'balanced', 'alternate'])
     parser_train.add_argument('--augmentation', type=str, default='mixup', choices=['none', 'mixup'])
-    parser_train.add_argument('--batch_size', type=int, default=32)
-    parser_train.add_argument('--learning_rate', type=float, default=1e-3)
+    parser_train.add_argument('--batch_size', type=int, default=64)
+    parser_train.add_argument('--learning_rate', type=float, default=1e-4)
     parser_train.add_argument('--resume_iteration', type=int, default=0)
     parser_train.add_argument('--early_stop', type=int, default=1000000)
-    parser_train.add_argument('--cuda', action='store_true', default=False)
+    parser_train.add_argument('--cuda', action='store_true', default=True)
     
     args = parser.parse_args()
     args.filename = get_filename(__file__)
