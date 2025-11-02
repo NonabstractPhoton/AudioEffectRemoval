@@ -10,7 +10,7 @@ import h5py
 import librosa
 
 from utilities import create_folder, get_sub_filepaths
-import audioset_tagging_cnn.utils.config as config
+import config
 
 
 def create_indexes(args):
@@ -28,7 +28,7 @@ def create_indexes(args):
 
     with h5py.File(waveforms_hdf5_path, 'r') as hr:
         with h5py.File(indexes_hdf5_path, 'w') as hw:
-            audios_num = len(os.listdir(waveforms_hdf5_path))
+            audios_num = len(hr['audio_name'])
             hw.create_dataset('audio_name', data=hr['audio_name'][:], dtype='S20')
             hw.create_dataset('target', data=hr['target'][:], dtype=np.bool)
             hw.create_dataset('hdf5_path', data=[waveforms_hdf5_path.encode()] * audios_num, dtype='S200')
@@ -51,9 +51,7 @@ def combine_full_indexes(args):
 
     # Paths
     paths = get_sub_filepaths(indexes_hdf5s_dir)
-    paths = [path for path in paths if (
-        'train' in path and 'full_train' not in path and 'mini' not in path)]
-
+    
     print('Total {} hdf5 to combine.'.format(len(paths)))
 
     with h5py.File(full_indexes_hdf5_path, 'w') as full_hf:
