@@ -10,7 +10,7 @@ args = parser.parse_args()
 # temporary solution
 load_config.load_config(globals())
 query = "python audioset_tagging_cnn/utils/dataset.py pack_waveforms_to_hdf5 \
-    --audios_dir={} \
+    --audios_root={} \
     --waveforms_hdf5_path={}.h5"
 for label in labels:
     os.system(query.format(os.path.join(args.audios_dir, label),
