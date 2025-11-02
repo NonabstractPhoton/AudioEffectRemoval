@@ -21,27 +21,6 @@ def init_bn(bn):
     bn.bias.data.fill_(0.)
     bn.weight.data.fill_(1.)
 
-# New helper: pad two 4-D tensors (B, C, T, F) so spatial dims match
-def _pad_to_match(t1, t2):
-    """Pad the smaller of t1/t2 with zeros on the right/bottom so they match shapes.
-    Inputs are expected to be (B, C, T, F).
-    Returns (t1_padded, t2_padded).
-    """
-    t1_t, t1_f = t1.size(2), t1.size(3)
-    t2_t, t2_f = t2.size(2), t2.size(3)
-    max_t = max(t1_t, t2_t)
-    max_f = max(t1_f, t2_f)
-
-    def pad(tensor, target_t, target_f):
-        dt = target_t - tensor.size(2)
-        df = target_f - tensor.size(3)
-        if dt == 0 and df == 0:
-            return tensor
-        # F.pad expects (pad_w_left, pad_w_right, pad_h_left, pad_h_right)
-        return F.pad(tensor, (0, df, 0, dt), mode='constant', value=0.0)
-
-    return pad(t1, max_t, max_f), pad(t2, max_t, max_f)
-
 
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -280,8 +259,13 @@ class Wavegram_Logmel_Cnn14(nn.Module):
         x = self.conv_block1(x, pool_size=(2, 2), pool_type='avg')
 
         # Concatenate Wavegram and Log mel spectrogram along the channel dimension
-        # Pad the smaller tensor so both spatial dims match, then concat.
-        x, a1 = _pad_to_match(x, a1)
+        # Align spatial dimensions (time, freq) before concatenation to avoid
+        # occasional off-by-one mismatches due to pooling.
+        if x.size(2) != a1.size(2) or x.size(3) != a1.size(3):
+            min_t = min(x.size(2), a1.size(2))
+            min_f = min(x.size(3), a1.size(3))
+            x = x[:, :, :min_t, :min_f]
+            a1 = a1[:, :, :min_t, :min_f]
         x = torch.cat((x, a1), dim=1)
 
         x = F.dropout(x, p=0.2, training=self.training)
@@ -396,61 +380,15 @@ class Wavegram_Logmel128_Cnn14(nn.Module):
         x = self.conv_block1(x, pool_size=(2, 2), pool_type='avg')
 
         # Concatenate Wavegram and Log mel spectrogram along the channel dimension
-        # Pad the smaller tensor so both spatial dims match, then concat.
-        x, a1 = _pad_to_match(x, a1)
+        # Align spatial dimensions (time, freq) before concatenation to avoid
+        # occasional off-by-one mismatches due to pooling.
+        if x.size(2) != a1.size(2) or x.size(3) != a1.size(3):
+            min_t = min(x.size(2), a1.size(2))
+            min_f = min(x.size(3), a1.size(3))
+            x = x[:, :, :min_t, :min_f]
+            a1 = a1[:, :, :min_t, :min_f]
         x = torch.cat((x, a1), dim=1)
 
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block2(x, pool_size=(2, 2), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block3(x, pool_size=(2, 2), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block4(x, pool_size=(2, 2), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block5(x, pool_size=(2, 2), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block6(x, pool_size=(1, 1), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = torch.mean(x, dim=3)
-        
-        (x1, _) = torch.max(x, dim=2)
-        x2 = torch.mean(x, dim=2)
-        x = x1 + x2
-        x = F.dropout(x, p=0.5, training=self.training)
-        x = F.relu_(self.fc1(x))
-        embedding = F.dropout(x, p=0.5, training=self.training)
-        clipwise_output = torch.sigmoid(self.fc_audioset(x))
-        
-        output_dict = {'clipwise_output': clipwise_output, 'embedding': embedding}
-
-        return output_dict
-
-
-class Cnn14_mel128(nn.Module):
-    def __init__(self, in_channels=1, classes_num=527):
-        super(Cnn14_mel128, self).__init__()
-        
-        self.conv_block1 = ConvBlock(in_channels=in_channels, out_channels=64)
-        self.conv_block2 = ConvBlock(in_channels=64, out_channels=128)
-        self.conv_block3 = ConvBlock(in_channels=128, out_channels=256)
-        self.conv_block4 = ConvBlock(in_channels=256, out_channels=512)
-        self.conv_block5 = ConvBlock(in_channels=512, out_channels=1024)
-        self.conv_block6 = ConvBlock(in_channels=1024, out_channels=2048)
-
-        self.fc1 = nn.Linear(2048, 2048, bias=True)
-        self.fc_audioset = nn.Linear(2048, classes_num, bias=True)
-        
-        self.init_weight()
-
-    def init_weight(self):
-        init_layer(self.fc1)
-        init_layer(self.fc_audioset)
- 
-    def forward(self, input, mixup_lambda=None):
-        """
-        Input: (batch_size, data_length)"""
-
-        x = self.conv_block1(input, pool_size=(2, 2), pool_type='avg')
         x = F.dropout(x, p=0.2, training=self.training)
         x = self.conv_block2(x, pool_size=(2, 2), pool_type='avg')
         x = F.dropout(x, p=0.2, training=self.training)
