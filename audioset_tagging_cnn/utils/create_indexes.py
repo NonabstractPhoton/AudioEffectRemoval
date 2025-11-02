@@ -51,9 +51,7 @@ def combine_full_indexes(args):
 
     # Paths
     paths = get_sub_filepaths(indexes_hdf5s_dir)
-    paths = [path for path in paths if (
-        'train' in path and 'full_train' not in path and 'mini' not in path)]
-
+    
     print('Total {} hdf5 to combine.'.format(len(paths)))
 
     with h5py.File(full_indexes_hdf5_path, 'w') as full_hf:
