@@ -117,7 +117,7 @@ def train(args):
     model = Model(sample_rate=sample_rate, window_size=window_size, 
         hop_size=hop_size, mel_bins=mel_bins, fmin=fmin, fmax=fmax, 
         classes_num=classes_num)
-    model = torch.compile(model)
+    # model = torch.compile(model)
      
     params_num = count_parameters(model)
     # flops_num = count_flops(model, clip_samples)
@@ -190,7 +190,8 @@ def train(args):
         iteration = 0
     
     # Parallel
-    print('GPU number: {}'.format(os.environ['LOCAL_RANK']))
+    gpu_ord = os.environ['LOCAL_RANK']
+    print('GPU number: {}'.format(gpu_ord))
     model = torch.nn.DataParallel(model)
 
     if 'cuda' in str(device):
