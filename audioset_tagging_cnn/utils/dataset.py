@@ -122,7 +122,7 @@ def download_wavs(args):
 def get_target(audios_dir):
     target = os.path.basename(audios_dir)
     idx = config.labels.index(target)
-    encoding = np.zeros(classes_num, dtype=bool)
+    encoding = np.zeros(config.classes_num, dtype=bool)
     encoding[idx] = 1
     return encoding
 
