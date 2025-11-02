@@ -10,7 +10,7 @@ import h5py
 import librosa
 
 from utilities import create_folder, get_sub_filepaths
-import audioset_tagging_cnn.utils.config as config
+import config
 
 
 def create_indexes(args):
