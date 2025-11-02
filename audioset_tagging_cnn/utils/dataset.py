@@ -163,7 +163,7 @@ def pack_waveforms_to_hdf5(args):
         
         for n, name in enumerate(os.listdir(audios_dir)):
             audio_path = os.path.join(audios_dir, name)
-            if os.path.isfile(audio_path):
+            if os.path.isfile(audio_path) and audio_path.lower().endswith('.wav'):
                 logging.info('{} {}'.format(name, audio_path))
                 (_, audio) = read(audio_path)
                 audio = pad_or_truncate(audio, clip_samples)
