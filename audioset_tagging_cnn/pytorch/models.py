@@ -233,7 +233,8 @@ class Wavegram_Logmel_Cnn14(nn.Module):
         Input: (batch_size, data_length)"""
 
         # Wavegram
-        a1 = F.relu_(self.pre_bn0(self.pre_conv0(input)))
+        # add channel dim for Conv1d: (batch, 1, time)
+        a1 = F.relu_(self.pre_bn0(self.pre_conv0(input[:, None, :])))
         a1 = self.pre_block1(a1, pool_size=4)
         a1 = self.pre_block2(a1, pool_size=4)
         a1 = self.pre_block3(a1, pool_size=4)
@@ -292,7 +293,6 @@ class Wavegram_Logmel_Cnn14(nn.Module):
         output_dict = {'clipwise_output': clipwise_output, 'embedding': embedding}
 
         return output_dict
-
 
 class Wavegram_Logmel128_Cnn14(nn.Module):
     def __init__(self, sample_rate, window_size, hop_size, mel_bins, fmin, 
@@ -354,7 +354,7 @@ class Wavegram_Logmel128_Cnn14(nn.Module):
         Input: (batch_size, data_length)"""
 
         # Wavegram
-        a1 = F.relu_(self.pre_bn0(self.pre_conv0(input)))
+        a1 = F.relu_(self.pre_bn0(self.pre_conv0(input[:, None, :])))
         a1 = self.pre_block1(a1, pool_size=4)
         a1 = self.pre_block2(a1, pool_size=4)
         a1 = self.pre_block3(a1, pool_size=4)
@@ -380,15 +380,8 @@ class Wavegram_Logmel128_Cnn14(nn.Module):
         x = self.conv_block1(x, pool_size=(2, 2), pool_type='avg')
 
         # Concatenate Wavegram and Log mel spectrogram along the channel dimension
-        # Align spatial dimensions (time, freq) before concatenation to avoid
-        # occasional off-by-one mismatches due to pooling.
-        if x.size(2) != a1.size(2) or x.size(3) != a1.size(3):
-            min_t = min(x.size(2), a1.size(2))
-            min_f = min(x.size(3), a1.size(3))
-            x = x[:, :, :min_t, :min_f]
-            a1 = a1[:, :, :min_t, :min_f]
         x = torch.cat((x, a1), dim=1)
-
+        
         x = F.dropout(x, p=0.2, training=self.training)
         x = self.conv_block2(x, pool_size=(2, 2), pool_type='avg')
         x = F.dropout(x, p=0.2, training=self.training)
