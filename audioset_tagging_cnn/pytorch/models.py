@@ -174,94 +174,6 @@ class ConvPreWavBlock(nn.Module):
         return x
 
 
-class Wavegram_Cnn14(nn.Module):
-    def __init__(self, sample_rate, window_size, hop_size, mel_bins, fmin, 
-        fmax, classes_num):
-        
-        super(Wavegram_Cnn14, self).__init__()
-
-        window = 'hann'
-        center = True
-        pad_mode = 'reflect'
-        ref = 1.0
-        amin = 1e-10
-        top_db = None
-
-        self.pre_conv0 = nn.Conv1d(in_channels=1, out_channels=64, kernel_size=11, stride=5, padding=5, bias=False)
-        self.pre_bn0 = nn.BatchNorm1d(64)
-        self.pre_block1 = ConvPreWavBlock(64, 64)
-        self.pre_block2 = ConvPreWavBlock(64, 128)
-        self.pre_block3 = ConvPreWavBlock(128, 128)
-        self.pre_block4 = ConvBlock(in_channels=4, out_channels=64)
-
-        # Spec augmenter
-        self.spec_augmenter = SpecAugmentation(time_drop_width=64, time_stripes_num=2, 
-            freq_drop_width=8, freq_stripes_num=2)
-
-        self.bn0 = nn.BatchNorm2d(64)
-
-        self.conv_block1 = ConvBlock(in_channels=1, out_channels=64)
-        self.conv_block2 = ConvBlock(in_channels=64, out_channels=128)
-        self.conv_block3 = ConvBlock(in_channels=128, out_channels=256)
-        self.conv_block4 = ConvBlock(in_channels=256, out_channels=512)
-        self.conv_block5 = ConvBlock(in_channels=512, out_channels=1024)
-        self.conv_block6 = ConvBlock(in_channels=1024, out_channels=2048)
-
-        self.fc1 = nn.Linear(2048, 2048, bias=True)
-        self.fc_audioset = nn.Linear(2048, classes_num, bias=True)
-        
-        self.init_weight()
-
-    def init_weight(self):
-        init_layer(self.pre_conv0)
-        init_bn(self.pre_bn0)
-        init_bn(self.bn0)
-        init_layer(self.fc1)
-        init_layer(self.fc_audioset)
- 
-    def forward(self, input, mixup_lambda=None):
-        """
-        Input: (batch_size, data_length)"""
-
-        # Wavegram
-        a1 = F.relu_(self.pre_bn0(self.pre_conv0(input[:, None, :])))
-        a1 = self.pre_block1(a1, pool_size=4)
-        a1 = self.pre_block2(a1, pool_size=4)
-        a1 = self.pre_block3(a1, pool_size=4)
-        a1 = a1.reshape((a1.shape[0], -1, 32, a1.shape[-1])).transpose(2, 3)
-        a1 = self.pre_block4(a1, pool_size=(2, 1))
-
-        # Mixup on spectrogram
-        if self.training and mixup_lambda is not None:
-            a1 = do_mixup(a1, mixup_lambda)
-        
-        x = a1
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block2(x, pool_size=(2, 2), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block3(x, pool_size=(2, 2), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block4(x, pool_size=(2, 2), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block5(x, pool_size=(2, 2), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block6(x, pool_size=(1, 1), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = torch.mean(x, dim=3)
-        
-        (x1, _) = torch.max(x, dim=2)
-        x2 = torch.mean(x, dim=2)
-        x = x1 + x2
-        x = F.dropout(x, p=0.5, training=self.training)
-        x = F.relu_(self.fc1(x))
-        embedding = F.dropout(x, p=0.5, training=self.training)
-        clipwise_output = torch.sigmoid(self.fc_audioset(x))
-        
-        output_dict = {'clipwise_output': clipwise_output, 'embedding': embedding}
-
-        return output_dict
-
-
 class Wavegram_Logmel_Cnn14(nn.Module):
     def __init__(self, sample_rate, window_size, hop_size, mel_bins, fmin, 
         fmax, classes_num):
@@ -279,7 +191,7 @@ class Wavegram_Logmel_Cnn14(nn.Module):
         self.pre_bn0 = nn.BatchNorm1d(64)
         self.pre_block1 = ConvPreWavBlock(64, 64)
         self.pre_block2 = ConvPreWavBlock(64, 128)
-        self.pre_block3 = ConvPreWavBlock(128, 128)
+        self.pre_block3 = ConvPreWavBlock(128, 256)
         self.pre_block4 = ConvBlock(in_channels=4, out_channels=64)
 
         # Spectrogram extractor
@@ -322,6 +234,7 @@ class Wavegram_Logmel_Cnn14(nn.Module):
         Input: (batch_size, data_length)"""
 
         # Wavegram
+        # add channel dim for Conv1d: (batch, 1, time)
         a1 = F.relu_(self.pre_bn0(self.pre_conv0(input[:, None, :])))
         a1 = self.pre_block1(a1, pool_size=4)
         a1 = self.pre_block2(a1, pool_size=4)
@@ -348,6 +261,13 @@ class Wavegram_Logmel_Cnn14(nn.Module):
         x = self.conv_block1(x, pool_size=(2, 2), pool_type='avg')
 
         # Concatenate Wavegram and Log mel spectrogram along the channel dimension
+        # Align spatial dimensions (time, freq) before concatenation to avoid
+        # occasional off-by-one mismatches due to pooling.
+        if x.size(2) != a1.size(2) or x.size(3) != a1.size(3):
+            min_t = min(x.size(2), a1.size(2))
+            min_f = min(x.size(3), a1.size(3))
+            x = x[:, :, :min_t, :min_f]
+            a1 = a1[:, :, :min_t, :min_f]
         x = torch.cat((x, a1), dim=1)
 
         x = F.dropout(x, p=0.2, training=self.training)
@@ -374,7 +294,6 @@ class Wavegram_Logmel_Cnn14(nn.Module):
         output_dict = {'clipwise_output': clipwise_output, 'embedding': embedding}
 
         return output_dict
-
 
 class Wavegram_Logmel128_Cnn14(nn.Module):
     def __init__(self, sample_rate, window_size, hop_size, mel_bins, fmin, 
@@ -462,6 +381,11 @@ class Wavegram_Logmel128_Cnn14(nn.Module):
         x = self.conv_block1(x, pool_size=(2, 2), pool_type='avg')
 
         # Concatenate Wavegram and Log mel spectrogram along the channel dimension
+        if (x.size(2) != a1.size(2)):
+            min_t = min(x.size(2), a1.size(2))
+            min_f = min(x.size(3), a1.size(3))
+            x = x[:, :, :min_t, :min_f]
+            a1 = a1[:, :, :min_t, :min_f]
         x = torch.cat((x, a1), dim=1)
         
         x = F.dropout(x, p=0.2, training=self.training)
@@ -489,4 +413,7 @@ class Wavegram_Logmel128_Cnn14(nn.Module):
 
         return output_dict
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 11defc9bc253e5154230e0d0c9946f5e08810594
