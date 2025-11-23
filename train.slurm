@@ -22,4 +22,4 @@ srun -N 2 --ntasks-per-node=1 --gpus-per-node=4 torchrun \
         --rdzv_id=$SLURM_JOB_ID \
         --rdzv_backend=c10d \
         --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
-        $SCRATCH/AudioEffectRemoval/audioset_tagging_cnn/pytorch/main_legacy.py train --workspace $SCRATCH/AudioEffectRemoval/
+        $SCRATCH/AudioEffectRemoval/audioset_tagging_cnn/pytorch/main_legacy.py train --workspace $SCRATCH/AudioEffectRemoval/ --resume_iteration=660
