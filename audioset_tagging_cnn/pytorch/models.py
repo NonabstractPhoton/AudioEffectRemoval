@@ -3,8 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchlibrosa.stft import Spectrogram, LogmelFilterBank
 from torchlibrosa.augmentation import SpecAugmentation
-import torch.distributed.pipelining as pipe
-
 import lightning as L
 from sklearn import metrics
 from pytorch_utils import do_mixup, interpolate, pad_framewise_output
@@ -141,8 +139,8 @@ class ConvPreWavBlock(L.LightningModule):
 
 
 class Wavegram_Logmel128_Cnn14(L.LightningModule):
-    def __init__(self, sample_rate, window_size, hop_size, mel_bins, fmin, 
-        fmax, classes_num):
+    def __init__(self, sample_rate, window_size, hop_size, fmin, 
+        fmax, learning_rate,classes_num):
         
         super(Wavegram_Logmel128_Cnn14, self).__init__()
 
@@ -152,8 +150,9 @@ class Wavegram_Logmel128_Cnn14(L.LightningModule):
         ref = 1.0
         amin = 1e-10
         top_db = None
+        self.learning_rate = learning_rate
 
-        self.loss_func = nn.CrossEntropyLoss()
+        self.loss_func = nn.BCEWithLogitsLoss()
 
         self.pre_conv0 = nn.Conv1d(in_channels=1, out_channels=64, kernel_size=11, stride=5, padding=5, bias=False)
         self.pre_bn0 = nn.BatchNorm1d(64)
@@ -169,7 +168,7 @@ class Wavegram_Logmel128_Cnn14(L.LightningModule):
 
         # Logmel feature extractor
         self.logmel_extractor = LogmelFilterBank(sr=sample_rate, n_fft=window_size, 
-            n_mels=mel_bins, fmin=fmin, fmax=fmax, ref=ref, amin=amin, top_db=top_db, 
+            n_mels=128, fmin=fmin, fmax=fmax, ref=ref, amin=amin, top_db=top_db, 
             freeze_parameters=True)
 
         # Spec augmenter
@@ -184,9 +183,12 @@ class Wavegram_Logmel128_Cnn14(L.LightningModule):
         self.conv_block4 = ConvBlock(in_channels=256, out_channels=512)
         self.conv_block5 = ConvBlock(in_channels=512, out_channels=1024)
         self.conv_block6 = ConvBlock(in_channels=1024, out_channels=2048)
-
-        self.fc1 = nn.Linear(2048, 2048, bias=True)
-        self.fc_audioset = nn.Linear(2048, classes_num, bias=True)
+        # expansion
+        self.conv_block7 = ConvBlock(in_channels=2048, out_channels=4096)
+        
+        self.fc1 = nn.Linear(4096, 4096, bias=True)
+        self.fc2 = nn.Linear(4096, 4096, bias=True)
+        self.fc_audioset = nn.Linear(4096, classes_num, bias=True)
         
         self.init_weight()
 
@@ -198,11 +200,10 @@ class Wavegram_Logmel128_Cnn14(L.LightningModule):
         init_layer(self.fc_audioset)
  
     def forward(self, input, mixup_lambda=None):
-        """
-        Input: (batch_size, data_length)"""
-
+        
+        input = torch.as_tensor(input).cuda()
         # Wavegram
-        a1 = F.relu_(self.pre_bn0(self.pre_conv0(input[:, None, :])))
+        a1 = F.relu_(self.pre_bn0(self.pre_conv0(torch.unsqueeze(input, 1))))
         a1 = self.pre_block1(a1, pool_size=4)
         a1 = self.pre_block2(a1, pool_size=4)
         a1 = self.pre_block3(a1, pool_size=4)
@@ -219,11 +220,6 @@ class Wavegram_Logmel128_Cnn14(L.LightningModule):
 
         if self.training:
             x = self.spec_augmenter(x)
-
-        # Mixup on spectrogram
-        if self.training and mixup_lambda is not None:
-            x = do_mixup(x, mixup_lambda)
-            a1 = do_mixup(a1, mixup_lambda)
         
         x = self.conv_block1(x, pool_size=(2, 2), pool_type='avg')
 
@@ -244,7 +240,9 @@ class Wavegram_Logmel128_Cnn14(L.LightningModule):
         x = F.dropout(x, p=0.2, training=self.training)
         x = self.conv_block5(x, pool_size=(2, 2), pool_type='avg')
         x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block6(x, pool_size=(1, 1), pool_type='avg')
+        x = self.conv_block6(x, pool_size=(2, 2), pool_type='avg')
+        x = F.dropout(x, p=0.2, training=self.training)
+        x = self.conv_block7(x, pool_size=(1, 1), pool_type='avg')
         x = F.dropout(x, p=0.2, training=self.training)
         x = torch.mean(x, dim=3)
         
@@ -253,6 +251,7 @@ class Wavegram_Logmel128_Cnn14(L.LightningModule):
         x = x1 + x2
         x = F.dropout(x, p=0.5, training=self.training)
         x = F.relu_(self.fc1(x))
+        x = F.relu_(self.fc2(x))
         embedding = F.dropout(x, p=0.5, training=self.training)
         output = self.fc_audioset(x)
         
@@ -261,22 +260,28 @@ class Wavegram_Logmel128_Cnn14(L.LightningModule):
         return output_dict
 
     def configure_optimizers(self):
-        optimizer = optim.AdamW(self.parameters(), lr=1e-3, betas=(0.9, 0.999), eps=1e-08, weight_decay=1e-5, amsgrad=True)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate, betas=(0.9, 0.999), eps=1e-08, weight_decay=1e-5, amsgrad=True)
         return optimizer
     
     def training_step(self, batch_dict, batch_idx):
         inputs = batch_dict["waveform"]
-        targets = batch_dict["target"] 
-        outputs = self(inputs)
-        loss = self.loss_func(outputs['output'], targets)
-        self.log('train_loss', loss, on_epoch=True)
+        targets = torch.as_tensor(batch_dict["target"], dtype=torch.float32).cuda()
+        output = self(inputs)['output']
+        loss = self.loss_func(output, targets)
+        self.log('train_loss', loss, on_epoch=True, batch_size=output.size(0))
+        self.print(f'Training Loss: {loss.item()}',)
         return loss
     
     def validation_step(self, batch_dict, batch_idx):
         inputs = batch_dict["waveform"]
-        targets = batch_dict["target"] 
-        outputs = self(inputs)
-        loss = self.loss_func(outputs['output'], targets)
-        self.log('val_loss', loss, on_epoch=True)
-        avg_precision = metrics.average_precision_score(targets.cpu(), outputs['output'].detach().cpu(), average=None)
-        self.log("val_avg_precision", avg_precision)
+        targets = torch.as_tensor(batch_dict["target"], dtype=torch.float32).cuda()
+        output = self(inputs)['output']
+        print(f'Input type: {type(inputs)}, Target type: {type(targets)}')
+        print(f'Input shape: {inputs.shape}, Target shape: {targets.shape}')
+        loss = self.loss_func(output, targets)
+        self.log('val_loss', loss, on_epoch=True, batch_size=output.size(0))
+        self.print(f'Validation Loss: {loss.item()}')
+        
+        avg_precision = torch.as_tensor(metrics.average_precision_score(batch_dict["target"], torch.sigmoid(output).numpy(force=True), average=None))
+        self.print(f'Validation Average Precision: {avg_precision}')
+        self.log("val_avg_precision_across_classes", torch.mean(avg_precision), on_epoch=True, batch_size=output.size(0))

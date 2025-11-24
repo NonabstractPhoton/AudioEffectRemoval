@@ -16,10 +16,16 @@ export OMP_NUM_THREADS=16
 ml conda
 conda activate fx_removal_env
 
-srun -N 2 --ntasks-per-node=1 --gpus-per-node=4 torchrun \
-        --nnodes=2 \
+srun -N $1 --ntasks-per-node=1 --gpus-per-node=4 torchrun \
+        --nnodes=$1 \
         --nproc_per_node=4 \
         --rdzv_id=$SLURM_JOB_ID \
         --rdzv_backend=c10d \
         --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
-        $SCRATCH/AudioEffectRemoval/audioset_tagging_cnn/pytorch/main_legacy.py train --workspace $SCRATCH/AudioEffectRemoval/ --resume_iteration=660
+        $SCRATCH/AudioEffectRemoval/audioset_tagging_cnn/pytorch/train.py \
+                --working_root=$SCRATCH/AudioEffectRemoval/ \
+                --batch_size=64 \
+                --gpus_per_node=4 \
+                --nodes=$1 \
+                --train_indexes_hdf5_path=$SCRATCH/AudioEffectRemoval/dataset/train/hdf5s/indexes/full_train.h5 \
+                --val_indexes_hdf5_path=$SCRATCH/AudioEffectRemoval/dataset/validation/hdf5s/indexes/full_validation.h5

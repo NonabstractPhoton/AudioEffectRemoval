@@ -6,6 +6,41 @@ import logging
 
 from utilities import int16_to_float32
 
+from torch.utils.data import Dataset
+import torch
+
+
+class FXSet(Dataset):
+    def __init__(self, indexes_hdf5_path, sample_rate=44100):
+        self.indexes_hdf5_path = indexes_hdf5_path
+        self.sample_rate = sample_rate
+
+        with h5py.File(indexes_hdf5_path, 'r') as hf:
+            self.audio_names = [audio_name.decode() for audio_name in hf['audio_name'][:]]
+            self.hdf5_paths = [hdf5_path.decode() for hdf5_path in hf['hdf5_path'][:]]
+            self.indexes_in_hdf5 = hf['index_in_hdf5'][:]
+            targets = hf['target'][:].astype(np.float32)
+
+            (self.audios_num, _) = targets.shape
+
+
+    
+    def __getitem__(self, idx):
+
+        with h5py.File(self.hdf5_paths[idx], 'r') as hf:
+            audio_name = hf['audio_name'][self.indexes_in_hdf5[idx]].decode()
+            waveform = torch.as_tensor(hf['waveform'][self.indexes_in_hdf5[idx]]/32767, dtype=torch.float32)
+            target = (hf['target'][self.indexes_in_hdf5[idx]])
+
+        data_dict = {
+            'audio_name': audio_name, 'waveform': waveform, 'target': target
+            }
+            
+        return data_dict
+    
+    def __len__(self):
+        return self.audios_num
+
 
 def read_black_list(black_list_csv):
     """Read audio names from black list. 
@@ -18,14 +53,17 @@ def read_black_list(black_list_csv):
     return black_list_names
 
 
-class AudioSetDataset(object):
-    def __init__(self, sample_rate=44100):
+class AudioSetDataset(Dataset):
+    def __init__(self, path, sample_rate=44100):
+        self.path = path
         """This class takes the meta of an audio clip as input, and return 
         the waveform and target of the audio clip. This class is used by DataLoader. 
         """
         self.sample_rate = sample_rate
+
+
     
-    def __getitem__(self, meta):
+    def __getitem__(self, idx):
         """Load waveform and target of an audio clip.
         
         Args:
@@ -39,18 +77,20 @@ class AudioSetDataset(object):
             'waveform': (clip_samples,), 
             'target': (classes_num,)}
         """
-        hdf5_path = meta['hdf5_path']
-        index_in_hdf5 = meta['index_in_hdf5']
 
-        with h5py.File(hdf5_path, 'r') as hf:
-            audio_name = hf['audio_name'][index_in_hdf5].decode()
-            waveform = int16_to_float32(hf['waveform'][index_in_hdf5])
-            target = hf['target'][index_in_hdf5].astype(np.float32)
+        with h5py.File(self.path, 'r') as hf:
+            audio_name = hf['audio_name'][idx].decode()
+            waveform = int16_to_float32(hf['waveform'][idx])
+            target = hf['target'][idx].astype(np.float32)
 
         data_dict = {
             'audio_name': audio_name, 'waveform': waveform, 'target': target}
             
         return data_dict
+    
+    def __len__(self):
+        with h5py.File(self.path, 'r') as hf:
+            return len(hf['target'][:][:,0])
 
 
 class Base(object):
@@ -395,9 +435,9 @@ def collate_fn(list_data_dict):
       np_data_dict, dict, e.g.,
           {'audio_name': (batch_size,), 'waveform': (batch_size, clip_samples), ...}
     """
-    np_data_dict = {}
+    data_dict = {}
     
     for key in list_data_dict[0].keys():
-        np_data_dict[key] = np.array([data_dict[key] for data_dict in list_data_dict])
+        data_dict[key] = np.array([data_dict[key] for data_dict in list_data_dict])
     
-    return np_data_dict
+    return data_dict
