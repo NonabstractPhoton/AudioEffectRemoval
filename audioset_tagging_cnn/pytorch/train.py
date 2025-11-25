@@ -3,7 +3,7 @@ import argparse
 import sys
 sys.path.insert(1, os.path.join(sys.path[0], '../utils'))
 import config as baked_config
-from data_generator import (FXSet, collate_fn)
+from dataset import (FXSet, collate_fn)
     
 import torch
 from torch.utils.data import DataLoader
@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 
 import logging
 import lightning as L
-from models import Wavegram_Logmel128_Cnn14
+from models import FXClassifier
 
 def main(config):
 
@@ -35,7 +35,7 @@ def main(config):
         num_workers=config.num_workers, pin_memory=True, batch_size=config.batch_size, shuffle=False)
     
 
-    model = Wavegram_Logmel128_Cnn14(sample_rate=44100,window_size=1024, 
+    model = FXClassifier(sample_rate=44100,window_size=1024, 
         hop_size=320, fmin=50, fmax=14000, 
         learning_rate=config.learning_rate, 
         classes_num=baked_config.classes_num)
@@ -50,7 +50,7 @@ def main(config):
     trainer = L.Trainer(
         max_epochs=10, accelerator='gpu', devices=config.gpus_per_node, 
         strategy='ddp',num_nodes=config.nodes, default_root_dir=config.working_root,
-        log_every_n_steps=10, enable_checkpointing=True)
+        log_every_n_steps=50, enable_checkpointing=True, precision="bf16-mixed")
 
     if (config.checkpoint is not None) and (os.path.isfile(config.checkpoint)):
         trainer.fit(model, train_loader, validation_loader,ckpt_path=config.checkpoint)
@@ -60,7 +60,7 @@ def main(config):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--learning_rate', type=float, help='Learning rate for optimizer', default=1e-4)
-    parser.add_argument('--batch_size', type=int, help='Batch size for training',default=64)
+    parser.add_argument('--batch_size', type=int, help='Batch size for each GPU in training',default=128)
     parser.add_argument('--num_workers', type=int, help='Number of workers for data loading', default=15)
     parser.add_argument('--gpus_per_node'  , type=int, help='Number of GPUs to use', default=1)
     parser.add_argument('--nodes', type=int, help='Number of nodes to use', default=1)

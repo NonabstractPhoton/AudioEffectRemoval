@@ -1,210 +1,443 @@
 import numpy as np
-import argparse
-import os
-import glob
-import datetime
+import h5py
+import csv
 import time
 import logging
-import h5py
-from scipy.io.wavfile import read
 
-from utilities import (create_folder, get_filename, create_logging, pad_or_truncate)
-import config
+from utilities import int16_to_float32
+
+from torch.utils.data import Dataset
+import torch
 
 
-def split_unbalanced_csv_to_partial_csvs(args):
-    """Split unbalanced csv to part csvs. Each part csv contains up to 50000 ids. 
-    """
+class FXSet(Dataset):
+    def __init__(self, indexes_hdf5_path, sample_rate=44100):
+        self.indexes_hdf5_path = indexes_hdf5_path
+        self.sample_rate = sample_rate
+
+        with h5py.File(indexes_hdf5_path, 'r') as hf:
+            self.audio_names = [audio_name.decode() for audio_name in hf['audio_name'][:]]
+            self.hdf5_paths = [hdf5_path.decode() for hdf5_path in hf['hdf5_path'][:]]
+            self.indexes_in_hdf5 = hf['index_in_hdf5'][:]
+            targets = hf['target'][:].astype(np.float32)
+
+            (self.audios_num, _) = targets.shape
+
+
     
-    unbalanced_csv_path = args.unbalanced_csv
-    unbalanced_partial_csvs_dir = args.unbalanced_partial_csvs_dir
-    
-    create_folder(unbalanced_partial_csvs_dir)
-    
-    with open(unbalanced_csv_path, 'r') as f:
-        lines = f.readlines()
+    def __getitem__(self, idx):
 
-    lines = lines[3:]   # Remove head info
-    audios_num_per_file = 50000
-    
-    files_num = int(np.ceil(len(lines) / float(audios_num_per_file)))
-    
-    for r in range(files_num):
-        lines_per_file = lines[r * audios_num_per_file : 
-            (r + 1) * audios_num_per_file]
-        
-        out_csv_path = os.path.join(unbalanced_partial_csvs_dir, 
-            'unbalanced_train_segments_part{:02d}.csv'.format(r))
+        with h5py.File(self.hdf5_paths[idx], 'r') as hf:
+            audio_name = hf['audio_name'][self.indexes_in_hdf5[idx]].decode()
+            waveform = torch.as_tensor(hf['waveform'][self.indexes_in_hdf5[idx]]/32767, dtype=torch.float32)
+            target = (hf['target'][self.indexes_in_hdf5[idx]])
 
-        with open(out_csv_path, 'w') as f:
-            f.write('empty\n')
-            f.write('empty\n')
-            f.write('empty\n')
-            for line in lines_per_file:
-                f.write(line)
-        
-        print('Write out csv to {}'.format(out_csv_path))
-
-
-def download_wavs(args):
-    """Download videos and extract audio in wav format.
-    """
-
-    # Paths
-    csv_path = args.csv_path
-    audios_dir = args.audios_dir
-    mini_data = args.mini_data
-    
-    if mini_data:
-        logs_dir = '_logs/download_dataset/{}'.format(get_filename(csv_path))
-    else:
-        logs_dir = '_logs/download_dataset_minidata/{}'.format(get_filename(csv_path))
-    
-    create_folder(audios_dir)
-    create_folder(logs_dir)
-    create_logging(logs_dir, filemode='w')
-    logging.info('Download log is saved to {}'.format(logs_dir))
-
-    # Read csv
-    with open(csv_path, 'r') as f:
-        lines = f.readlines()
-    
-    lines = lines[3:]   # Remove csv head info
-
-    if mini_data:
-        lines = lines[0 : 10]   # Download partial data for debug
-    
-    download_time = time.time()
-
-    # Download
-    for (n, line) in enumerate(lines):
-        
-        items = line.split(', ')
-        audio_id = items[0]
-        start_time = float(items[1])
-        end_time = float(items[2])
-        duration = end_time - start_time
-        
-        logging.info('{} {} start_time: {:.1f}, end_time: {:.1f}'.format(
-            n, audio_id, start_time, end_time))
-        
-        # Download full video of whatever format
-        video_name = os.path.join(audios_dir, '_Y{}.%(ext)s'.format(audio_id))
-        os.system("youtube-dl --quiet -o '{}' -x https://www.youtube.com/watch?v={}"\
-            .format(video_name, audio_id))
-
-        video_paths = glob.glob(os.path.join(audios_dir, '_Y' + audio_id + '.*'))
-
-        # If download successful
-        if len(video_paths) > 0:
-            video_path = video_paths[0]     # Choose one video
-
-            # Add 'Y' to the head because some video ids are started with '-'
-            # which will cause problem
-            audio_path = os.path.join(audios_dir, 'Y' + audio_id + '.wav')
-
-            # Extract audio in wav format
-            os.system("ffmpeg -loglevel panic -i {} -ac 1 -ar 32000 -ss {} -t 00:00:{} {} "\
-                .format(video_path, 
-                str(datetime.timedelta(seconds=start_time)), duration, 
-                audio_path))
+        data_dict = {
+            'audio_name': audio_name, 'waveform': waveform, 'target': target
+            }
             
-            # Remove downloaded video
-            os.system("rm {}".format(video_path))
+        return data_dict
+    
+    def __len__(self):
+        return self.audios_num
+
+
+def read_black_list(black_list_csv):
+    """Read audio names from black list. 
+    """
+    with open(black_list_csv, 'r') as fr:
+        reader = csv.reader(fr)
+        lines = list(reader)
+
+    black_list_names = ['Y{}.wav'.format(line[0]) for line in lines]
+    return black_list_names
+
+
+class AudioSetDataset(Dataset):
+    def __init__(self, path, sample_rate=44100):
+        self.path = path
+        """This class takes the meta of an audio clip as input, and return 
+        the waveform and target of the audio clip. This class is used by DataLoader. 
+        """
+        self.sample_rate = sample_rate
+
+
+    
+    def __getitem__(self, idx):
+        """Load waveform and target of an audio clip.
+        
+        Args:
+          meta: {
+            'hdf5_path': str, 
+            'index_in_hdf5': int}
+
+        Returns: 
+          data_dict: {
+            'audio_name': str, 
+            'waveform': (clip_samples,), 
+            'target': (classes_num,)}
+        """
+
+        with h5py.File(self.path, 'r') as hf:
+            audio_name = hf['audio_name'][idx].decode()
+            waveform = int16_to_float32(hf['waveform'][idx])
+            target = hf['target'][idx].astype(np.float32)
+
+        data_dict = {
+            'audio_name': audio_name, 'waveform': waveform, 'target': target}
             
-            logging.info("Download and convert to {}".format(audio_path))
+        return data_dict
+    
+    def __len__(self):
+        with h5py.File(self.path, 'r') as hf:
+            return len(hf['target'][:][:,0])
+
+
+class Base(object):
+    def __init__(self, indexes_hdf5_path, batch_size, black_list_csv, random_seed):
+        """Base class of train sampler.
+        
+        Args:
+          indexes_hdf5_path: string
+          batch_size: int
+          black_list_csv: string
+          random_seed: int
+        """
+        self.batch_size = batch_size
+        self.random_state = np.random.RandomState(random_seed)
+
+        # Black list
+        if black_list_csv:
+            self.black_list_names = read_black_list(black_list_csv)
+        else:
+            self.black_list_names = []
+
+        logging.info('Black list samples: {}'.format(len(self.black_list_names)))
+
+        # Load target
+        load_time = time.time()
+
+        with h5py.File(indexes_hdf5_path, 'r') as hf:
+            self.audio_names = [audio_name.decode() for audio_name in hf['audio_name'][:]]
+            self.hdf5_paths = [hdf5_path.decode() for hdf5_path in hf['hdf5_path'][:]]
+            self.indexes_in_hdf5 = hf['index_in_hdf5'][:]
+            self.targets = hf['target'][:].astype(np.float32)
+        
+        (self.audios_num, self.classes_num) = self.targets.shape
+        logging.info('Training number: {}'.format(self.audios_num))
+        logging.info('Load target time: {:.3f} s'.format(time.time() - load_time))
+
+
+class TrainSampler(Base):
+    def __init__(self, indexes_hdf5_path, batch_size, black_list_csv=None, 
+        random_seed=1234):
+        """Balanced sampler. Generate batch meta for training.
+        
+        Args:
+          indexes_hdf5_path: string
+          batch_size: int
+          black_list_csv: string
+          random_seed: int
+        """
+        super(TrainSampler, self).__init__(indexes_hdf5_path, batch_size, 
+            black_list_csv, random_seed)
+        
+        self.indexes = np.arange(self.audios_num)
+            
+        # Shuffle indexes
+        self.random_state.shuffle(self.indexes)
+        
+        self.pointer = 0
+
+    def __iter__(self):
+        """Generate batch meta for training. 
+        
+        Returns:
+          batch_meta: e.g.: [
+            {'hdf5_path': string, 'index_in_hdf5': int}, 
+            ...]
+        """
+        batch_size = self.batch_size
+
+        while True:
+            batch_meta = []
+            i = 0
+            while i < batch_size:
+                index = self.indexes[self.pointer]
+                self.pointer += 1
+
+                # Shuffle indexes and reset pointer
+                if self.pointer >= self.audios_num:
+                    self.pointer = 0
+                    self.random_state.shuffle(self.indexes)
                 
-    logging.info('Download finished! Time spent: {:.3f} s'.format(
-        time.time() - download_time))
+                # If audio in black list then continue
+                if self.audio_names[index] in self.black_list_names:
+                    continue
+                else:
+                    batch_meta.append({
+                        'hdf5_path': self.hdf5_paths[index], 
+                        'index_in_hdf5': self.indexes_in_hdf5[index]})
+                    i += 1
 
-    logging.info('Logs can be viewed in {}'.format(logs_dir))
+            yield batch_meta
 
-def get_target(audios_dir):
-    target = os.path.basename(audios_dir)
-    idx = config.labels.index(target)
-    encoding = np.zeros(config.classes_num, dtype=bool)
-    encoding[idx] = 1
-    return encoding
+    def state_dict(self):
+        state = {
+            'indexes': self.indexes,
+            'pointer': self.pointer}
+        return state
+            
+    def load_state_dict(self, state):
+        self.indexes = state['indexes']
+        self.pointer = state['pointer']
 
 
-def pack_waveforms_to_hdf5(args):
-    """Pack waveform and target of several audio clips to a single hdf5 file. 
-    This can speed up loading and training.
-    """
-
-    # Arguments & parameters
-    audios_dir = args.audios_dir
-    waveforms_hdf5_path = args.waveforms_hdf5_path
-
-    clip_samples = config.clip_samples
-    classes_num = config.classes_num
-    sample_rate = config.sample_rate
-
-    create_folder(os.path.dirname(waveforms_hdf5_path))
-
-    logs_dir = os.path.join('_logs/pack_waveforms_to_hdf5/', audios_dir)
-    create_folder(logs_dir)
-    create_logging(logs_dir, filemode='w')
-    logging.info('Write logs to {}'.format(logs_dir))
-    
-    
-    # Pack waveform to hdf5
-    total_time = time.time()
-
-    audios_num = len(os.listdir(audios_dir))
-    
-    with h5py.File(waveforms_hdf5_path, 'w') as hf:
-        hf.create_dataset('audio_name', shape=((audios_num,)), dtype='S20')
-        hf.create_dataset('waveform', shape=((audios_num, clip_samples)), dtype=np.int16)
-        hf.create_dataset('target', shape=((audios_num, classes_num)), dtype=np.bool)
-        hf.attrs.create('sample_rate', data=sample_rate, dtype=np.int32)
-
-        # Pack waveform & target of several audio clips to a single hdf5 file
+class BalancedTrainSampler(Base):
+    def __init__(self, indexes_hdf5_path, batch_size, black_list_csv=None, 
+        random_seed=1234):
+        """Balanced sampler. Generate batch meta for training. Data are equally 
+        sampled from different sound classes.
         
-        for n, name in enumerate(os.listdir(audios_dir)):
-            audio_path = os.path.join(audios_dir, name)
-            if os.path.isfile(audio_path) and audio_path.lower().endswith('.wav'):
-                logging.info('{} {}'.format(name, audio_path))
-                (_, audio) = read(audio_path)
-                audio = pad_or_truncate(audio, clip_samples)
+        Args:
+          indexes_hdf5_path: string
+          batch_size: int
+          black_list_csv: string
+          random_seed: int
+        """
+        super(BalancedTrainSampler, self).__init__(indexes_hdf5_path, 
+            batch_size, black_list_csv, random_seed)
+        
+        self.samples_num_per_class = np.sum(self.targets, axis=0)
+        logging.info('samples_num_per_class: {}'.format(
+            self.samples_num_per_class.astype(np.int32)))
+        
+        # Training indexes of all sound classes. E.g.: 
+        # [[0, 11, 12, ...], [3, 4, 15, 16, ...], [7, 8, ...], ...]
+        self.indexes_per_class = []
+        
+        for k in range(self.classes_num):
+            self.indexes_per_class.append(
+                np.where(self.targets[:, k] == 1)[0])
+            
+        # Shuffle indexes
+        for k in range(self.classes_num):
+            self.random_state.shuffle(self.indexes_per_class[k])
+        
+        self.queue = []
+        self.pointers_of_classes = [0] * self.classes_num
 
-                hf['audio_name'][n] = name.encode()
-                hf['waveform'][n] = audio
-                hf['target'][n] = get_target(audios_dir)
-            else:
-                logging.info('{} File does not exist! {}'.format(n, audio_path))
+    def expand_queue(self, queue):
+        classes_set = np.arange(self.classes_num).tolist()
+        self.random_state.shuffle(classes_set)
+        queue += classes_set
+        return queue
 
-    logging.info('Write to {}'.format(waveforms_hdf5_path))
-    logging.info('Pack hdf5 time: {:.3f}'.format(time.time() - total_time))
-          
+    def __iter__(self):
+        """Generate batch meta for training. 
+        
+        Returns:
+          batch_meta: e.g.: [
+            {'hdf5_path': string, 'index_in_hdf5': int}, 
+            ...]
+        """
+        batch_size = self.batch_size
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers(dest='mode')
+        while True:
+            batch_meta = []
+            i = 0
+            while i < batch_size:
+                if len(self.queue) == 0:
+                    self.queue = self.expand_queue(self.queue)
 
-    parser_split = subparsers.add_parser('split_unbalanced_csv_to_partial_csvs')
-    parser_split.add_argument('--unbalanced_csv', type=str, required=True, help='Path of unbalanced_csv file to read.')
-    parser_split.add_argument('--unbalanced_partial_csvs_dir', type=str, required=True, help='Directory to save out split unbalanced partial csv.')
+                class_id = self.queue.pop(0)
+                pointer = self.pointers_of_classes[class_id]
+                self.pointers_of_classes[class_id] += 1
+                index = self.indexes_per_class[class_id][pointer]
+                
+                # When finish one epoch of a sound class, then shuffle its indexes and reset pointer
+                if self.pointers_of_classes[class_id] >= self.samples_num_per_class[class_id]:
+                    self.pointers_of_classes[class_id] = 0
+                    self.random_state.shuffle(self.indexes_per_class[class_id])
 
-    parser_download_wavs = subparsers.add_parser('download_wavs')
-    parser_download_wavs.add_argument('--csv_path', type=str, required=True, help='Path of csv file containing audio info to be downloaded.')
-    parser_download_wavs.add_argument('--audios_dir', type=str, required=True, help='Directory to save out downloaded audio.')
-    parser_download_wavs.add_argument('--mini_data', action='store_true', default=True, help='Set true to only download 10 audios for debugging.')
+                # If audio in black list then continue
+                if self.audio_names[index] in self.black_list_names:
+                    continue
+                else:
+                    batch_meta.append({
+                        'hdf5_path': self.hdf5_paths[index], 
+                        'index_in_hdf5': self.indexes_in_hdf5[index]})
+                    i += 1
 
-    parser_pack_wavs = subparsers.add_parser('pack_waveforms_to_hdf5')
-    parser_pack_wavs.add_argument('--audios_dir', type=str, required=True, help='Directory to save out downloaded audio.')
-    parser_pack_wavs.add_argument('--waveforms_hdf5_path', type=str, required=True, help='Path to save out packed hdf5.')
+            yield batch_meta
 
-    args = parser.parse_args()
+    def state_dict(self):
+        state = {
+            'indexes_per_class': self.indexes_per_class, 
+            'queue': self.queue, 
+            'pointers_of_classes': self.pointers_of_classes}
+        return state
+            
+    def load_state_dict(self, state):
+        self.indexes_per_class = state['indexes_per_class']
+        self.queue = state['queue']
+        self.pointers_of_classes = state['pointers_of_classes']
+
+
+class AlternateTrainSampler(Base):
+    def __init__(self, indexes_hdf5_path, batch_size, black_list_csv=None,
+        random_seed=1234):
+        """AlternateSampler is a combination of Sampler and Balanced Sampler. 
+        AlternateSampler alternately sample data from Sampler and Blanced Sampler.
+        
+        Args:
+          indexes_hdf5_path: string          
+          batch_size: int
+          black_list_csv: string
+          random_seed: int
+        """
+        self.sampler1 = TrainSampler(indexes_hdf5_path, batch_size, 
+            black_list_csv, random_seed)
+
+        self.sampler2 = BalancedTrainSampler(indexes_hdf5_path, batch_size, 
+            black_list_csv, random_seed)
+
+        self.batch_size = batch_size
+        self.count = 0
+
+    def __iter__(self):
+        """Generate batch meta for training. 
+        
+        Returns:
+          batch_meta: e.g.: [
+            {'hdf5_path': string, 'index_in_hdf5': int}, 
+            ...]
+        """
+        batch_size = self.batch_size
+
+        while True:
+            self.count += 1
+
+            if self.count % 2 == 0:
+                batch_meta = []
+                i = 0
+                while i < batch_size:
+                    index = self.sampler1.indexes[self.sampler1.pointer]
+                    self.sampler1.pointer += 1
+
+                    # Shuffle indexes and reset pointer
+                    if self.sampler1.pointer >= self.sampler1.audios_num:
+                        self.sampler1.pointer = 0
+                        self.sampler1.random_state.shuffle(self.sampler1.indexes)
+                    
+                    # If audio in black list then continue
+                    if self.sampler1.audio_names[index] in self.sampler1.black_list_names:
+                        continue
+                    else:
+                        batch_meta.append({
+                            'hdf5_path': self.sampler1.hdf5_paths[index], 
+                            'index_in_hdf5': self.sampler1.indexes_in_hdf5[index]})
+                        i += 1
+
+            elif self.count % 2 == 1:
+                batch_meta = []
+                i = 0
+                while i < batch_size:
+                    if len(self.sampler2.queue) == 0:
+                        self.sampler2.queue = self.sampler2.expand_queue(self.sampler2.queue)
+
+                    class_id = self.sampler2.queue.pop(0)
+                    pointer = self.sampler2.pointers_of_classes[class_id]
+                    self.sampler2.pointers_of_classes[class_id] += 1
+                    index = self.sampler2.indexes_per_class[class_id][pointer]
+                    
+                    # When finish one epoch of a sound class, then shuffle its indexes and reset pointer
+                    if self.sampler2.pointers_of_classes[class_id] >= self.sampler2.samples_num_per_class[class_id]:
+                        self.sampler2.pointers_of_classes[class_id] = 0
+                        self.sampler2.random_state.shuffle(self.sampler2.indexes_per_class[class_id])
+
+                    # If audio in black list then continue
+                    if self.sampler2.audio_names[index] in self.sampler2.black_list_names:
+                        continue
+                    else:
+                        batch_meta.append({
+                            'hdf5_path': self.sampler2.hdf5_paths[index], 
+                            'index_in_hdf5': self.sampler2.indexes_in_hdf5[index]})
+                        i += 1
+
+            yield batch_meta
+
+    def state_dict(self):
+        state = {
+            'sampler1': self.sampler1.state_dict(), 
+            'sampler2': self.sampler2.state_dict()}
+        return state
+
+    def load_state_dict(self, state):
+        self.sampler1.load_state_dict(state['sampler1'])
+        self.sampler2.load_state_dict(state['sampler2'])
+
+
+class EvaluateSampler(object):
+    def __init__(self, indexes_hdf5_path, batch_size):
+        """Evaluate sampler. Generate batch meta for evaluation.
+        
+        Args:
+          indexes_hdf5_path: string
+          batch_size: int
+        """
+        self.batch_size = batch_size
+
+        with h5py.File(indexes_hdf5_path, 'r') as hf:
+            self.audio_names = [audio_name.decode() for audio_name in hf['audio_name'][:]]
+            self.hdf5_paths = [hdf5_path.decode() for hdf5_path in hf['hdf5_path'][:]]
+            self.indexes_in_hdf5 = hf['index_in_hdf5'][:]
+            self.targets = hf['target'][:].astype(np.float32)
+            
+        self.audios_num = len(self.audio_names)
+
+    def __iter__(self):
+        """Generate batch meta for training. 
+        
+        Returns:
+          batch_meta: e.g.: [
+            {'hdf5_path': string, 
+             'index_in_hdf5': int}
+            ...]
+        """
+        batch_size = self.batch_size
+        pointer = 0
+
+        while pointer < self.audios_num:
+            batch_indexes = np.arange(pointer, 
+                min(pointer + batch_size, self.audios_num))
+
+            batch_meta = []
+
+            for index in batch_indexes:
+                batch_meta.append({
+                    'audio_name': self.audio_names[index], 
+                    'hdf5_path': self.hdf5_paths[index], 
+                    'index_in_hdf5': self.indexes_in_hdf5[index], 
+                    'target': self.targets[index]})
+
+            pointer += batch_size
+            yield batch_meta
+
+
+def collate_fn(list_data_dict):
+    """Collate data.
+    Args:
+      list_data_dict, e.g., [{'audio_name': str, 'waveform': (clip_samples,), ...}, 
+                             {'audio_name': str, 'waveform': (clip_samples,), ...},
+                             ...]
+    Returns:
+      np_data_dict, dict, e.g.,
+          {'audio_name': (batch_size,), 'waveform': (batch_size, clip_samples), ...}
+    """
+    data_dict = {}
     
-    if args.mode == 'split_unbalanced_csv_to_partial_csvs':
-        split_unbalanced_csv_to_partial_csvs(args)
+    for key in list_data_dict[0].keys():
+        data_dict[key] = np.array([data_dict[key] for data_dict in list_data_dict])
     
-    elif args.mode == 'download_wavs':
-        download_wavs(args)
-
-    elif args.mode == 'pack_waveforms_to_hdf5':
-        pack_waveforms_to_hdf5(args)
-
-    else:
-        raise Exception('Incorrect arguments!')
+    return data_dict

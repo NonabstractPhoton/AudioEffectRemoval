@@ -2,3 +2,6 @@ dataset/
 _logs/
 logs/
 checkpoints/
+lightning_logs/
+statistics/
+testset/

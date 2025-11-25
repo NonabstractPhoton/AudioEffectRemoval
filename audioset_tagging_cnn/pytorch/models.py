@@ -5,7 +5,8 @@ from torchlibrosa.stft import Spectrogram, LogmelFilterBank
 from torchlibrosa.augmentation import SpecAugmentation
 import lightning as L
 from sklearn import metrics
-from pytorch_utils import do_mixup, interpolate, pad_framewise_output
+import math
+from pytorch_utils import pad_framewise_output
  
 
 def init_layer(layer):
@@ -69,38 +70,6 @@ class ConvBlock(L.LightningModule):
         return x
 
 
-# might be helpful for beefing up model, might also delete later though
-class AttBlock(L.LightningModule):
-    def __init__(self, n_in, n_out, activation='linear', temperature=1.):
-        super(AttBlock, self).__init__()
-        
-        self.activation = activation
-        self.temperature = temperature
-        self.att = nn.Conv1d(in_channels=n_in, out_channels=n_out, kernel_size=1, stride=1, padding=0, bias=True)
-        self.cla = nn.Conv1d(in_channels=n_in, out_channels=n_out, kernel_size=1, stride=1, padding=0, bias=True)
-        
-        self.bn_att = nn.BatchNorm1d(n_out)
-        self.init_weights()
-        
-    def init_weights(self):
-        init_layer(self.att)
-        init_layer(self.cla)
-        init_bn(self.bn_att)
-         
-    def forward(self, x):
-        # x: (n_samples, n_in, n_time)
-        norm_att = torch.softmax(torch.clamp(self.att(x), -10, 10), dim=-1)
-        cla = self.nonlinear_transform(self.cla(x))
-        x = torch.sum(norm_att * cla, dim=2)
-        return x, norm_att, cla
-
-    def nonlinear_transform(self, x):
-        if self.activation == 'linear':
-            return x
-        elif self.activation == 'sigmoid':
-            return torch.sigmoid(x)
-
-
 class ConvPreWavBlock(L.LightningModule):
     def __init__(self, in_channels, out_channels):
         
@@ -137,12 +106,54 @@ class ConvPreWavBlock(L.LightningModule):
         
         return x
 
+class MultiHeadAttention(nn.Module):
+    def __init__(self, embed_size, num_heads):
+        super(MultiHeadAttention, self).__init__()
+        assert embed_size % num_heads == 0, "Embedding size must be divisible by number of heads"
+        
+        self.num_heads = num_heads
+        self.head_dim = embed_size // num_heads
 
-class Wavegram_Logmel128_Cnn14(L.LightningModule):
+        # Linear layers for Q, K, V for all heads
+        self.query = nn.Linear(embed_size, embed_size)
+        self.key = nn.Linear(embed_size, embed_size)
+        self.value = nn.Linear(embed_size, embed_size)
+        
+        # Output linear layer
+        self.fc_out = nn.Linear(embed_size, embed_size)
+
+        self.init_weight()
+
+    def forward(self, x, dropout_p=0.):
+        N, seq_len, embed_size = x.shape
+        Q = self.query(x)
+        K = self.key(x)
+        V = self.value(x)
+
+        # Reshape Q, K, V to (N, num_heads, seq_len, head_dim)
+        Q = Q.view(N, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        K = K.view(N, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        V = V.view(N, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+        # Perform scaled dot-product attention and concatenate heads
+        out = F.scaled_dot_product_attention(Q, K, V, dropout_p=dropout_p)
+        out = out.transpose(1, 2).contiguous().view(N, seq_len, embed_size)
+
+        # Final linear transformation
+        return self.fc_out(out)
+    
+    def init_weight(self):
+        init_layer(self.query)
+        init_layer(self.key)
+        init_layer(self.value)
+        init_layer(self.fc_out)
+
+
+class FXClassifier(L.LightningModule):
     def __init__(self, sample_rate, window_size, hop_size, fmin, 
         fmax, learning_rate,classes_num):
         
-        super(Wavegram_Logmel128_Cnn14, self).__init__()
+        super(FXClassifier, self).__init__()
 
         window = 'hann'
         center = True
@@ -185,9 +196,10 @@ class Wavegram_Logmel128_Cnn14(L.LightningModule):
         self.conv_block6 = ConvBlock(in_channels=1024, out_channels=2048)
         # expansion
         self.conv_block7 = ConvBlock(in_channels=2048, out_channels=4096)
+
+        self.multihead_attention = MultiHeadAttention(embed_size=4096, num_heads=(2**math.ceil(math.log2(classes_num))))
         
-        self.fc1 = nn.Linear(4096, 4096, bias=True)
-        self.fc2 = nn.Linear(4096, 4096, bias=True)
+        self.fc_pre_audioset = nn.Linear(4096, 4096, bias=True)
         self.fc_audioset = nn.Linear(4096, classes_num, bias=True)
         
         self.init_weight()
@@ -196,7 +208,7 @@ class Wavegram_Logmel128_Cnn14(L.LightningModule):
         init_layer(self.pre_conv0)
         init_bn(self.pre_bn0)
         init_bn(self.bn0)
-        init_layer(self.fc1)
+        init_layer(self.fc_pre_audioset)
         init_layer(self.fc_audioset)
  
     def forward(self, input, mixup_lambda=None):
@@ -209,7 +221,6 @@ class Wavegram_Logmel128_Cnn14(L.LightningModule):
         a1 = self.pre_block3(a1, pool_size=4)
         a1 = a1.reshape((a1.shape[0], -1, 64, a1.shape[-1])).transpose(2, 3)
         a1 = self.pre_block4(a1, pool_size=(2, 1))
-
         # Log mel spectrogram
         x = self.spectrogram_extractor(input)   # (batch_size, 1, time_steps, freq_bins)
         x = self.logmel_extractor(x)    # (batch_size, 1, time_steps, mel_bins)
@@ -244,17 +255,22 @@ class Wavegram_Logmel128_Cnn14(L.LightningModule):
         x = F.dropout(x, p=0.2, training=self.training)
         x = self.conv_block7(x, pool_size=(1, 1), pool_type='avg')
         x = F.dropout(x, p=0.2, training=self.training)
-        x = torch.mean(x, dim=3)
         
-        (x1, _) = torch.max(x, dim=2)
-        x2 = torch.mean(x, dim=2)
-        x = x1 + x2
-        x = F.dropout(x, p=0.5, training=self.training)
-        x = F.relu_(self.fc1(x))
-        x = F.relu_(self.fc2(x))
+        # [batch_size, 4096, 4 , 2]
+
+        x = x.view(x.size(0), x.size(1), -1).transpose(1, 2)
+
+        x = self.multihead_attention(x, dropout_p=.5)
+
+        (x1, _) = torch.max(x, dim=1)
+        x2 = torch.mean(x, dim=1)
+        x = x2 + x1
+
+        x = F.relu_(self.fc_pre_audioset(x))
+
         embedding = F.dropout(x, p=0.5, training=self.training)
         output = self.fc_audioset(x)
-        
+
         output_dict = {'output': output, 'embedding': embedding}
 
         return output_dict
@@ -276,12 +292,10 @@ class Wavegram_Logmel128_Cnn14(L.LightningModule):
         inputs = batch_dict["waveform"]
         targets = torch.as_tensor(batch_dict["target"], dtype=torch.float32).cuda()
         output = self(inputs)['output']
-        print(f'Input type: {type(inputs)}, Target type: {type(targets)}')
-        print(f'Input shape: {inputs.shape}, Target shape: {targets.shape}')
         loss = self.loss_func(output, targets)
         self.log('val_loss', loss, on_epoch=True, batch_size=output.size(0))
         self.print(f'Validation Loss: {loss.item()}')
         
-        avg_precision = torch.as_tensor(metrics.average_precision_score(batch_dict["target"], torch.sigmoid(output).numpy(force=True), average=None))
+        avg_precision = torch.as_tensor(metrics.average_precision_score(batch_dict["target"], torch.sigmoid(output).to(dtype=torch.float32).numpy(force=True), average=None))
         self.print(f'Validation Average Precision: {avg_precision}')
         self.log("val_avg_precision_across_classes", torch.mean(avg_precision), on_epoch=True, batch_size=output.size(0))
