@@ -61,8 +61,6 @@ def create_effected_dataset(args, effects):
             tfm.flanger(depth=5,regen=10,speed=.6)
         elif (effect == 'reverb'):
             tfm.reverb(100)
-        elif effect == 'equalizer':
-            tfm.equalizer(220,2,0)
         elif (effect == 'phaser'):
             tfm.phaser()
         elif (effect == 'tremolo'):
@@ -77,8 +75,16 @@ def create_effected_dataset(args, effects):
 
         elif (effect == 'overdrive'):
             tfm.overdrive(25,30)
+        # deprecated block
+        '''
+        elif effect == 'equalizer':
+            tfm.equalizer(220,2,0)
+        '''
+        #deprecated block
+        '''
         elif effect == 'compressor':
             tfm.compand()
+        '''
 
     # Only list regular .wav files from the input directory to avoid directories causing IsADirectoryError
     dir_list = [f for f in os.listdir(args.in_directory)
