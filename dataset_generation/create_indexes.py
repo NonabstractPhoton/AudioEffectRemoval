@@ -10,7 +10,7 @@ import librosa
 import sys
 sys.path.insert(1, os.path.join(sys.path[0], '../audioset_tagging_cnn/utils'))
 
-from utilities import create_folder, get_sub_filepaths
+from utilities import get_sub_filepaths
 import config
 
 import itertools
@@ -92,34 +92,36 @@ if __name__ == '__main__':
 
     parser.add_argument('--waveforms_hdf5_path', type=str, required=True, help='Path of packed waveforms hdf5.')
     parser.add_argument('--indexes_hdf5_path', type=str, required=True, help='Path to write out indexes hdf5.')
+    parser.add_argument('--only_combine', type=bool, default=False, help='Only combine indexes without creating new ones.')
 
     args = parser.parse_args()
     
-    if not os.path.exists(args.indexes_hdf5_path):
-        os.mkdir(args.indexes_hdf5_path)
+    if not args.only_combine:
+        if not os.path.exists(args.indexes_hdf5_path):
+            os.mkdir(args.indexes_hdf5_path)
 
-    pairs = []
+        pairs = []
 
-    for r in range(1, config.max_multilabels+1):
-        effect_combinations = itertools.combinations(config.labels, r)
-        for effect_set in effect_combinations:
-            if r != 1 and 'no_effect' in effect_set:
-                continue
-            label = "-".join(effect_set)
-            in_path = f"{os.path.join(args.waveforms_hdf5_path, label)}.h5"
-            
-            if (not os.path.exists(in_path)):
-                continue
-            out_path = f"{os.path.join(args.indexes_hdf5_path, label)}.h5"   
-            pairs.append((in_path, out_path))
-    
-    proc_count = min(mp.cpu_count(), len(pairs))
-    procs = [mp.Process(target=create_indexes, args=pair) for pair in pairs]
-    
-    for p in procs:
-        p.start()
-    for p in procs:
-        p.join()
+        for r in range(1, config.max_multilabels+1):
+            effect_combinations = itertools.combinations(config.labels, r)
+            for effect_set in effect_combinations:
+                if r != 1 and 'no_effect' in effect_set:
+                    continue
+                label = "-".join(effect_set)
+                in_path = f"{os.path.join(args.waveforms_hdf5_path, label)}.h5"
+                
+                if (not os.path.exists(in_path)):
+                    continue
+                out_path = f"{os.path.join(args.indexes_hdf5_path, label)}.h5"   
+                pairs.append((in_path, out_path))
+        
+        proc_count = min(mp.cpu_count(), len(pairs))
+        procs = [mp.Process(target=create_indexes, args=pair) for pair in pairs]
+        
+        for p in procs:
+            p.start()
+        for p in procs:
+            p.join()
 
     combine_full_indexes(args.indexes_hdf5_path, os.path.join(args.indexes_hdf5_path, 'full_indexes.h5'))
 

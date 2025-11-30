@@ -24,8 +24,8 @@ srun -N $1 --ntasks-per-node=1 --gpus-per-node=4 torchrun \
         --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
         $SCRATCH/AudioEffectRemoval/audioset_tagging_cnn/pytorch/train.py \
                 --working_root=$SCRATCH/AudioEffectRemoval/ \
-                --batch_size=64 \
+                --batch_size=96 \
                 --gpus_per_node=4 \
                 --nodes=$1 \
-                --train_indexes_hdf5_path=$SCRATCH/AudioEffectRemoval/dataset/train/hdf5s/indexes/full_train.h5 \
-                --val_indexes_hdf5_path=$SCRATCH/AudioEffectRemoval/dataset/validation/hdf5s/indexes/full_validation.h5
+                --checkpoint="/pscratch/sd/a/atharvt/AudioEffectRemoval/lightning_logs/version_32/epoch=3-step=3760.ckpt" \
+                --indexes_hdf5_path=$SCRATCH/AudioEffectRemoval/updated_dataset/hdf5s/indexes/full_indexes.h5 \

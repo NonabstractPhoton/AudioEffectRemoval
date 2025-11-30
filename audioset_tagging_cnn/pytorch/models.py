@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torchlibrosa.stft import Spectrogram, LogmelFilterBank
 from torchlibrosa.augmentation import SpecAugmentation
 import lightning as L
-from sklearn import metrics
+from torchmetrics.classification import MultilabelAccuracy
 import math
 from pytorch_utils import pad_framewise_output
  
@@ -107,10 +107,12 @@ class ConvPreWavBlock(L.LightningModule):
         return x
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, embed_size, num_heads):
+    def __init__(self, embed_size, num_heads, dropout_p):
         super(MultiHeadAttention, self).__init__()
         assert embed_size % num_heads == 0, "Embedding size must be divisible by number of heads"
         
+        self.dropout_p = dropout_p
+
         self.num_heads = num_heads
         self.head_dim = embed_size // num_heads
 
@@ -122,9 +124,7 @@ class MultiHeadAttention(nn.Module):
         # Output linear layer
         self.fc_out = nn.Linear(embed_size, embed_size)
 
-        self.init_weight()
-
-    def forward(self, x, dropout_p=0.):
+    def forward(self, x):
         N, seq_len, embed_size = x.shape
         Q = self.query(x)
         K = self.key(x)
@@ -136,7 +136,7 @@ class MultiHeadAttention(nn.Module):
         V = V.view(N, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
 
         # Perform scaled dot-product attention and concatenate heads
-        out = F.scaled_dot_product_attention(Q, K, V, dropout_p=dropout_p)
+        out = F.scaled_dot_product_attention(Q, K, V, dropout_p=self.dropout_p)
         out = out.transpose(1, 2).contiguous().view(N, seq_len, embed_size)
 
         # Final linear transformation
@@ -148,6 +148,45 @@ class MultiHeadAttention(nn.Module):
         init_layer(self.value)
         init_layer(self.fc_out)
 
+class MLP(nn.Module):
+
+    def __init__(self, embed_size, dropout_p):
+        super().__init__()
+        self.c_fc    = nn.Linear(embed_size, 4 * embed_size, bias=True)
+        self.gelu    = nn.GELU()
+        self.c_proj  = nn.Linear(4 * embed_size, embed_size, bias=True)
+        self.dropout = nn.Dropout(dropout_p)
+
+    def forward(self, x):
+        x = self.c_fc(x)
+        x = self.gelu(x)
+        x = self.c_proj(x)
+        x = self.dropout(x)
+        return x
+    
+    def init_weight(self):
+        init_layer(self.c_fc)
+        init_layer(self.c_proj)
+
+class TransformerBlock(nn.Module):
+    def __init__(self, embed_size, num_heads, dropout_p):
+        super (TransformerBlock, self).__init__()
+        
+        self.ln_1 = nn.LayerNorm(embed_size) 
+        self.attn = MultiHeadAttention(embed_size, num_heads, dropout_p)
+        self.ln_2 = nn.LayerNorm(embed_size)
+        self.mlp = MLP(embed_size,dropout_p)
+
+        self.init_weight()
+
+    def forward(self,x):
+        x = x + self.attn(self.ln_1(x))
+        x = x + self.mlp(self.ln_2(x))
+        return x
+
+    def init_weight(self):
+        self.attn.init_weight()
+        self.mlp.init_weight()
 
 class FXClassifier(L.LightningModule):
     def __init__(self, sample_rate, window_size, hop_size, fmin, 
@@ -164,6 +203,7 @@ class FXClassifier(L.LightningModule):
         self.learning_rate = learning_rate
 
         self.loss_func = nn.BCEWithLogitsLoss()
+        self.accuracy = MultilabelAccuracy(num_labels=classes_num, average=None,validate_args=False)
 
         self.pre_conv0 = nn.Conv1d(in_channels=1, out_channels=64, kernel_size=11, stride=5, padding=5, bias=False)
         self.pre_bn0 = nn.BatchNorm1d(64)
@@ -190,25 +230,26 @@ class FXClassifier(L.LightningModule):
 
         self.conv_block1 = ConvBlock(in_channels=1, out_channels=64)
         self.conv_block2 = ConvBlock(in_channels=128, out_channels=128)
-        self.conv_block3 = ConvBlock(in_channels=128, out_channels=256)
-        self.conv_block4 = ConvBlock(in_channels=256, out_channels=512)
-        self.conv_block5 = ConvBlock(in_channels=512, out_channels=1024)
-        self.conv_block6 = ConvBlock(in_channels=1024, out_channels=2048)
-        # expansion
-        self.conv_block7 = ConvBlock(in_channels=2048, out_channels=4096)
+        
 
-        self.multihead_attention = MultiHeadAttention(embed_size=4096, num_heads=(2**math.ceil(math.log2(classes_num))))
+        embed_size = 68*32
+
+        self.TransformerBlocks = nn.Sequential(
+            *[TransformerBlock(embed_size, 8, 0.1) for _ in range(classes_num)]
+        )
         
-        self.fc_pre_audioset = nn.Linear(4096, 4096, bias=True)
-        self.fc_audioset = nn.Linear(4096, classes_num, bias=True)
-        
+
+        self.ln_f = nn.LayerNorm(embed_size)
+
+        self.fc_audioset = nn.Linear(embed_size*128, classes_num)
+
         self.init_weight()
 
     def init_weight(self):
         init_layer(self.pre_conv0)
         init_bn(self.pre_bn0)
         init_bn(self.bn0)
-        init_layer(self.fc_pre_audioset)
+        # init_layer(self.fc_pre_audioset)
         init_layer(self.fc_audioset)
  
     def forward(self, input, mixup_lambda=None):
@@ -231,7 +272,8 @@ class FXClassifier(L.LightningModule):
 
         if self.training:
             x = self.spec_augmenter(x)
-        
+    
+
         x = self.conv_block1(x, pool_size=(2, 2), pool_type='avg')
 
         # Concatenate Wavegram and Log mel spectrogram along the channel dimension
@@ -243,35 +285,21 @@ class FXClassifier(L.LightningModule):
         x = torch.cat((x, a1), dim=1)
         
         x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block2(x, pool_size=(2, 2), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block3(x, pool_size=(2, 2), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block4(x, pool_size=(2, 2), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block5(x, pool_size=(2, 2), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block6(x, pool_size=(2, 2), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block7(x, pool_size=(1, 1), pool_type='avg')
-        x = F.dropout(x, p=0.2, training=self.training)
-        
-        # [batch_size, 4096, 4 , 2]
+        x = self.conv_block2(x, pool_size=(2, 2), pool_type='avg+max')
 
-        x = x.view(x.size(0), x.size(1), -1).transpose(1, 2)
+        x = x.view(x.size(0), x.size(1), -1)
 
-        x = self.multihead_attention(x, dropout_p=.5)
+        # [batch_size, 128, 68*32]
 
-        (x1, _) = torch.max(x, dim=1)
-        x2 = torch.mean(x, dim=1)
-        x = x2 + x1
+        x = self.TransformerBlocks(x)
+        x = self.ln_f(x)
 
-        x = F.relu_(self.fc_pre_audioset(x))
+        # x = F.relu_(self.fc_pre_audioset(x))
 
-        embedding = F.dropout(x, p=0.5, training=self.training)
+        x = x.reshape(x.size(0), -1)
         output = self.fc_audioset(x)
 
-        output_dict = {'output': output, 'embedding': embedding}
+        output_dict = {'output': output, 'embedding': x}
 
         return output_dict
 
@@ -293,9 +321,8 @@ class FXClassifier(L.LightningModule):
         targets = torch.as_tensor(batch_dict["target"], dtype=torch.float32).cuda()
         output = self(inputs)['output']
         loss = self.loss_func(output, targets)
-        self.log('val_loss', loss, on_epoch=True, batch_size=output.size(0))
+        self.log('val_loss', loss, on_epoch=True, sync_dist=True,batch_size=output.size(0))
         self.print(f'Validation Loss: {loss.item()}')
-        
-        avg_precision = torch.as_tensor(metrics.average_precision_score(batch_dict["target"], torch.sigmoid(output).to(dtype=torch.float32).numpy(force=True), average=None))
+        avg_precision = self.accuracy(output, targets)
         self.print(f'Validation Average Precision: {avg_precision}')
-        self.log("val_avg_precision_across_classes", torch.mean(avg_precision), on_epoch=True, batch_size=output.size(0))
+        self.log("val_avg_precision_across_classes", torch.mean(avg_precision), on_epoch=True, sync_dist=True,batch_size=output.size(0))

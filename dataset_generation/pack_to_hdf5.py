@@ -34,8 +34,10 @@ def pack_waveforms_to_hdf5(audios_dir, waveforms_hdf5_path, quiet=True):
     clip_samples = config.clip_samples
     classes_num = config.classes_num
     sample_rate = config.sample_rate
-
-    create_folder(os.path.dirname(waveforms_hdf5_path))
+    try:
+        create_folder(os.path.dirname(waveforms_hdf5_path))
+    except:
+        pass
 
     logs_dir = os.path.join('_logs/pack_waveforms_to_hdf5/', audios_dir)
     create_folder(logs_dir)
@@ -61,7 +63,11 @@ def pack_waveforms_to_hdf5(audios_dir, waveforms_hdf5_path, quiet=True):
             if os.path.isfile(audio_path) and audio_path.lower().endswith('.wav'):
                 if not quiet:
                     logging.info('{} {}'.format(name, audio_path))
-                (_, audio) = read(audio_path)
+                try:
+                    (_, audio) = read(audio_path)
+                except Exception as e:
+                    logging.error(f"Error reading {audio_path}: {e}")
+                    continue
                 audio = pad_or_truncate(audio, clip_samples)
 
                 hf['audio_name'][n] = name.encode()
