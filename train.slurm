@@ -27,5 +27,4 @@ srun -N $1 --ntasks-per-node=1 --gpus-per-node=4 torchrun \
                 --batch_size=96 \
                 --gpus_per_node=4 \
                 --nodes=$1 \
-                --checkpoint="lightning_logs/version_33/checkpoints/epoch=5-step=5640.ckpt" \
-                --indexes_hdf5_path=$SCRATCH/AudioEffectRemoval/updated_dataset/hdf5s/indexes/full_indexes.h5 \
+                --indexes_hdf5_path=/pscratch/sd/a/atharvt/AudioEffectRemoval/updated_dataset/hdf5s/indexes/full_indexes.h5 \
