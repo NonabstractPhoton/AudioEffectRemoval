@@ -230,18 +230,22 @@ class FXClassifier(L.LightningModule):
 
         self.conv_block1 = ConvBlock(in_channels=1, out_channels=64)
         self.conv_block2 = ConvBlock(in_channels=128, out_channels=128)
-        
+        self.conv_block3 = ConvBlock(in_channels=128, out_channels=256)
+        self.conv_block4 = ConvBlock(in_channels=256, out_channels=512)
+        self.conv_block5 = ConvBlock(in_channels=512, out_channels=1024)
+        self.conv_block6 = ConvBlock(in_channels=1024, out_channels=2048)
+        self.conv_block7 = ConvBlock(in_channels=2048, out_channels=4096)
 
-        embed_size = 68*32
+        embed_size = 4096
 
         self.TransformerBlocks = nn.Sequential(
-            *[TransformerBlock(embed_size, 8, 0.1) for _ in range(classes_num)]
+            *[TransformerBlock(embed_size, 8, 0.1) for _ in range(2)]
         )
         
 
         self.ln_f = nn.LayerNorm(embed_size)
 
-        self.fc_audioset = nn.Linear(embed_size*128, classes_num)
+        self.fc_audioset = nn.Linear(embed_size*8, classes_num)
 
         self.init_weight()
 
@@ -285,19 +289,29 @@ class FXClassifier(L.LightningModule):
         x = torch.cat((x, a1), dim=1)
         
         x = F.dropout(x, p=0.2, training=self.training)
-        x = self.conv_block2(x, pool_size=(2, 2), pool_type='avg+max')
-
-        x = x.view(x.size(0), x.size(1), -1)
-
-        # [batch_size, 128, 68*32]
+        x = self.conv_block2(x, pool_size=(2, 2), pool_type='avg')
+        x = F.dropout(x, p=0.2, training=self.training)
+        x = self.conv_block3(x, pool_size=(2, 2), pool_type='avg')
+        x = F.dropout(x, p=0.2, training=self.training)
+        x = self.conv_block4(x, pool_size=(2, 2), pool_type='avg')
+        x = F.dropout(x, p=0.2, training=self.training)
+        x = self.conv_block5(x, pool_size=(2, 2), pool_type='avg')
+        x = F.dropout(x, p=0.2, training=self.training)
+        x = self.conv_block6(x, pool_size=(2, 2), pool_type='avg')
+        x = F.dropout(x, p=0.2, training=self.training)
+        
+        # [batch_size, 4096, 4 , 2]
+        
+        x = x.view(x.size(0), x.size(1), -1).transpose(1, 2)
 
         x = self.TransformerBlocks(x)
         x = self.ln_f(x)
 
         # x = F.relu_(self.fc_pre_audioset(x))
 
-        x = x.reshape(x.size(0), -1)
-        output = self.fc_audioset(x)
+        embedding = x.reshape(x.size(0), -1)
+
+        output = self.fc_audioset(embedding)
 
         output_dict = {'output': output, 'embedding': x}
 
